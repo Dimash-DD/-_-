@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ordinem servare</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='64' fill='%23e11d48'/%3E%3Cpath d='M48 128 Q128 60 208 128 Q128 196 48 128Z' fill='none' stroke='%23fff' stroke-width='16' stroke-linejoin='round'/%3E%3Ccircle cx='128' cy='128' r='31' fill='%23fff'/%3E%3Ccircle cx='128' cy='128' r='13' fill='%23e11d48'/%3E%3Cpath d='M128 26v19M48 128h19m122 0h19' stroke='%23fecdd3' stroke-width='10' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#f2f2f7;--card:#fff;--ink:#000;--ink2:#3c3c43;--mute:#8e8e93;--sep:#c6c6c8;--fill:#e9e9eb;
+--blue:#007aff;--red:#ff3b30;--orange:#ff9500;--green:#34c759;--gray:#8e8e93;--bar:rgba(249,249,249,.86)}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--ink:#fff;--ink2:#ebebf5;--mute:#8e8e93;
+--sep:#38383a;--fill:#2c2c2e;--blue:#0a84ff;--red:#ff453a;--orange:#ff9f0a;--green:#30d158;--bar:rgba(22,22,24,.86)}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.35 -apple-system,"SF Pro Text","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+-webkit-font-smoothing:antialiased;overflow:hidden}
+.screen{position:absolute;inset:0 0 64px 0;overflow-y:auto;display:none}
+.screen.on{display:block}
+.col{max-width:720px;margin:0 auto;padding:10px 20px 40px}
+.nav{position:sticky;top:0;z-index:5;background:var(--bar);backdrop-filter:saturate(180%) blur(20px);
+-webkit-backdrop-filter:saturate(180%) blur(20px);min-height:44px;display:flex;align-items:center;justify-content:center;
+font-weight:600;font-size:17px;border-bottom:.5px solid transparent;transition:border-color .2s}
+.nav.sc{border-bottom-color:var(--sep)}
+.nav .back{position:absolute;left:12px;color:var(--blue);font-weight:400;cursor:pointer;display:flex;align-items:center;gap:2px}
+.nav .t{opacity:0;transition:opacity .2s}.nav.sc .t{opacity:1}
+h1{font:700 34px/1.15 -apple-system,"SF Pro Display","Segoe UI Variable Display","Segoe UI",system-ui;letter-spacing:.01em;margin:6px 0 4px}
+.sub{color:var(--mute);margin:0 0 18px;font-size:15px}
+.gh{font-size:13px;color:var(--mute);text-transform:uppercase;letter-spacing:.02em;margin:24px 16px 7px}
+.gf{font-size:13px;color:var(--mute);margin:7px 16px 0;line-height:1.35}
+.group{background:var(--card);border-radius:12px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;min-height:46px;padding:10px 16px;position:relative}
+.row+.row::before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid var(--sep)}
+.row.icon+.row::before,.row.icon::before{left:56px}
+.row .lbl{flex:0 0 auto;min-width:110px}
+.row .val{flex:1;text-align:right;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.tap{cursor:pointer}.row.tap:active{background:var(--fill)}
+.chev{color:#c4c4c6;font-size:18px;margin-left:2px}
+.ic{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:#fff;flex:0 0 30px;font-size:15px}
+.ic.b{background:var(--blue)}.ic.r{background:var(--red)}.ic.o{background:var(--orange)}.ic.g{background:var(--green)}.ic.p{background:#af52de}.ic.k{background:#8e8e93}
+.grow{flex:1;min-width:0}
+.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.small{font-size:13px;color:var(--mute)}
+input[type=text],input[type=password],textarea,select{font:inherit;color:var(--ink);background:transparent;border:0;outline:0;width:100%;text-align:right}
+textarea{text-align:left;resize:none;min-height:44px;line-height:1.35}
+select{appearance:none;-webkit-appearance:none;cursor:pointer;text-align:right;color:var(--mute);text-align-last:right}
+input::placeholder,textarea::placeholder{color:#c4c4c6}
+.link{color:var(--blue);cursor:pointer}
+.del{color:var(--red);cursor:pointer;font-size:20px;line-height:1;padding:4px}
+.sw{position:relative;width:51px;height:31px;flex:0 0 51px;cursor:pointer}
+.sw input{display:none}
+.sw span{position:absolute;inset:0;background:var(--fill);border-radius:99px;transition:.25s}
+.sw span::after{content:"";position:absolute;width:27px;height:27px;left:2px;top:2px;border-radius:50%;background:#fff;
+box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);transition:.25s}
+.sw input:checked+span{background:var(--green)}.sw input:checked+span::after{transform:translateX(20px)}
+.step{display:flex;align-items:center;background:var(--fill);border-radius:8px;overflow:hidden}
+.step button{border:0;background:transparent;color:var(--ink);font-size:20px;width:44px;height:30px;cursor:pointer}
+.step b{min-width:34px;text-align:center;font-weight:500}
+.btn{display:block;width:100%;border:0;border-radius:14px;background:var(--blue);color:#fff;font:600 17px/1 inherit;
+padding:16px;margin-top:26px;cursor:pointer;transition:transform .1s,opacity .2s}
+.btn:active{transform:scale(.98)}.btn[disabled]{opacity:.4}
+.btn.sec{background:var(--card);color:var(--blue);margin-top:10px}
+.drop{border:1.5px dashed var(--sep);border-radius:12px;padding:14px;text-align:center;color:var(--mute);margin-top:10px;font-size:13px}
+.drop.hot{border-color:var(--blue);color:var(--blue);background:color-mix(in srgb,var(--blue) 8%,transparent)}
+.tabs{position:fixed;left:0;right:0;bottom:0;height:64px;background:var(--bar);backdrop-filter:saturate(180%) blur(20px);
+-webkit-backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--sep);display:flex;justify-content:center;gap:40px;padding-top:6px;z-index:9}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--mute);cursor:pointer;min-width:80px;font-weight:500}
+.tab svg{width:26px;height:26px}.tab.on{color:var(--blue)}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:560px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--card);border-radius:12px;padding:12px 14px}
+.tile b{display:block;font:700 28px/1.1 -apple-system,"SF Pro Display","Segoe UI Variable Display","Segoe UI";letter-spacing:-.01em}
+.tile span{font-size:13px;color:var(--mute)}
+.tile.e b{color:var(--red)}.tile.w b{color:var(--orange)}.tile.i b{color:var(--gray)}
+.seg{display:flex;background:var(--fill);border-radius:9px;padding:2px;margin:20px 0 4px;overflow-x:auto}
+.seg div{flex:1;text-align:center;padding:6px 10px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;color:var(--ink)}
+.seg div.on{background:var(--card);box-shadow:0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04)}
+.fd{width:10px;height:10px;border-radius:50%;flex:0 0 10px;margin-top:5px}
+.fd.error{background:var(--red)}.fd.warn{background:var(--orange)}.fd.info{background:var(--gray)}
+.fi{align-items:flex-start;cursor:pointer}
+.fi .more{display:none;margin-top:8px;font-size:13px;color:var(--ink2)}
+.fi.open .more{display:block}
+.q{font-style:italic;color:var(--mute);margin-top:4px}
+.tag{font-size:11px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--fill);color:var(--mute);margin-left:4px}
+.tag.ai{background:color-mix(in srgb,var(--blue) 15%,transparent);color:var(--blue)}
+.tag.unv{background:color-mix(in srgb,var(--orange) 18%,transparent);color:var(--orange)}
+.card{background:var(--card);border-radius:12px;padding:14px 16px;margin-top:14px}
+.empty{color:var(--mute);text-align:center;padding:26px}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:flex-end;justify-content:center;z-index:20}
+.sheet.on{display:flex}
+.sheet .pane{background:var(--bg);width:100%;max-width:720px;border-radius:14px 14px 0 0;padding:8px 20px 28px;max-height:82vh;display:flex;flex-direction:column;
+animation:up .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--sep);margin:0 auto 10px}
+.spin{width:22px;height:22px;border:2.5px solid var(--fill);border-top-color:var(--blue);border-radius:50%;animation:r .8s linear infinite;flex:0 0 22px}
+@keyframes r{to{transform:rotate(360deg)}}
+.log{font:12px/1.5 ui-monospace,"SF Mono",Consolas,monospace;color:var(--ink2);background:var(--card);border-radius:12px;padding:12px 14px;overflow-y:auto;flex:1;white-space:pre-wrap;margin-top:12px}
+.toast{position:fixed;left:50%;top:20px;transform:translateX(-50%) translateY(-120px);background:var(--card);color:var(--ink);
+padding:12px 18px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);transition:transform .35s cubic-bezier(.2,.8,.2,1);z-index:30;font-size:14px;max-width:90vw}
+.toast.on{transform:translateX(-50%) translateY(0)}
+.search{display:flex;align-items:center;gap:8px;background:var(--fill);border-radius:10px;padding:8px 10px;margin-top:4px}
+.search input{text-align:left}
+.hit .code{font-weight:600}.hit .txt{font-size:13px;color:var(--ink2);margin-top:3px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.brand{display:flex;flex-direction:column;align-items:center;text-align:center;padding:18px 0 4px}
+.brand .logo{width:92px;height:92px;filter:drop-shadow(0 8px 18px rgba(225,29,72,.28))}
+.brand .dev{margin-top:8px;font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.brand .appname{font:700 34px/1.15 -apple-system,"SF Pro Display","Segoe UI Variable Display","Segoe UI",system-ui;letter-spacing:.01em;margin-top:10px}
+.brand .sub{margin:4px 0 4px}
+.col.wide{max-width:1180px}
+.tile.b b{color:var(--blue)}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0 4px}
+.bar .seg{margin:0;flex:1;min-width:300px}
+.pill-select{width:auto;background:var(--card);color:var(--ink);border-radius:9px;padding:7px 12px;font-size:13px;text-align:left;text-align-last:left}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.cols{grid-template-columns:1fr}}
+.ch{font:700 20px/1.2 -apple-system,"SF Pro Display","Segoe UI Variable Display","Segoe UI";margin:18px 4px 2px;display:flex;align-items:center;gap:8px}
+.cnt{font-size:12px;font-weight:600;padding:1px 8px;border-radius:99px;color:#fff}
+.cnt.e{background:var(--red)}.cnt.w{background:var(--orange)}.cnt.i{background:var(--gray)}
+.num{color:var(--mute);font-size:13px;font-variant-numeric:tabular-nums;min-width:30px}
+.pg{color:var(--blue);font-weight:500}
+.pvimg{background:var(--card);border-radius:12px;overflow:hidden;margin-top:12px;min-height:120px;display:grid;place-items:center}
+.pvimg img{width:100%;display:block}
+.pvnav{display:flex;justify-content:space-between;margin-top:8px;font-size:14px}
+#pv .pane{max-width:980px;overflow-y:auto}
+.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:16px}
+.actions .btn{margin:0;font-size:15px;padding:14px 8px}
+</style></head><body>
+
+<!-- ============ Проверка ============ -->
+<section class="screen on" id="s-check">
+ <div class="nav"><span class="t">Ordinem servare</span></div>
+ <div class="col">
+  <div class="brand">
+   <svg class="logo" viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="64" fill="#e11d48"/>
+    <path d="M48 128 Q128 60 208 128 Q128 196 48 128Z" fill="none" stroke="#fff" stroke-width="16" stroke-linejoin="round"/>
+    <circle cx="128" cy="128" r="31" fill="#fff"/><circle cx="128" cy="128" r="13" fill="#e11d48"/>
+    <path d="M128 26v19M48 128h19m122 0h19" stroke="#fecdd3" stroke-width="10" stroke-linecap="round"/></svg>
+   <div class="dev">ISIS-Tech</div>
+   <div class="appname">Ordinem servare</div>
+   <p class="sub">Проверка раздела ОВ по ГОСТ 21.602-2016 и СП РК 4.02-101-2012</p>
+  </div>
+
+  <div class="gh">Проект</div>
+  <div class="group">
+   <div class="row"><span class="lbl">Шифр</span><input type="text" id="code" placeholder="по штампу"></div>
+   <div class="row" style="align-items:flex-start"><span class="lbl" style="padding-top:2px">Наименование</span>
+     <textarea id="name" rows="2" placeholder="по штампу"></textarea></div>
+   <div class="row tap" id="detect"><span class="link">Взять из штампа первого листа</span></div>
+  </div>
+  <div class="gf">С этими шифром и наименованием сверяются основные надписи всех листов. Если поля пустые, эталоном считается самый частый вариант.</div>
+
+  <div class="gh">Файлы</div>
+  <div class="group" id="files"></div>
+  <div class="drop" id="drop">Перетащите PDF сюда — альбом, спецификацию, общие данные</div>
+
+  <div class="gh">Что проверять</div>
+  <div class="group">
+   <div class="row icon"><div class="ic b">Ш</div><div class="grow">Шифр, наименование, штамп<div class="small">основная надпись, нумерация, состав комплекта, обозначения систем</div></div>
+     <label class="sw"><input type="checkbox" id="stamp"><span></span></label></div>
+   <div class="row icon"><div class="ic o">▭</div><div class="grow">Сечения воздуховодов<div class="small">подпись на выноске против нарисованной ширины</div></div>
+     <label class="sw"><input type="checkbox" id="sections"><span></span></label></div>
+   <div class="row icon"><div class="ic g">↗</div><div class="grow">Выноски и спецификация<div class="small">решётки, клапаны, диффузоры против позиций спецификации</div></div>
+     <label class="sw"><input type="checkbox" id="callouts"><span></span></label></div>
+   <div class="row icon"><div class="ic r">🔥</div><div class="grow">Технические по СП РК 4.02-101<div class="small">огнезадерживающие и дымовые клапаны, прокладка, класс и толщина воздуховодов</div></div>
+     <label class="sw"><input type="checkbox" id="tech"><span></span></label></div>
+   <div class="row icon"><div class="ic p">✦</div><div class="grow">Аудит ИИ через API<div class="small" id="ai-sub">Claude · нужен ключ API в настройках</div></div>
+     <label class="sw"><input type="checkbox" id="ai"><span></span></label></div>
+  </div>
+
+  <div class="gh">Параметры</div>
+  <div class="group">
+   <div class="row"><span class="lbl">Масштаб</span>
+     <select id="scale"><option>Авто</option><option>1:20</option><option>1:25</option><option>1:50</option><option>1:75</option>
+     <option>1:100</option><option>1:125</option><option>1:150</option><option>1:200</option><option>1:250</option><option>1:300</option></select><span class="chev">›</span></div>
+   <div class="row"><span class="lbl grow">Допуск, мм</span>
+     <div class="step"><button id="tolm">−</button><b id="tolv">5</b><button id="tolp">+</button></div></div>
+   <div class="row"><span class="lbl">Листы</span><input type="text" id="pages" placeholder="все"></div>
+   <div class="row tap" id="outdir-row"><span class="lbl">Результаты</span><span class="val" id="outdir-v">рядом с PDF</span><span class="chev">›</span></div>
+  </div>
+
+  <button class="btn" id="run">Проверить</button>
+  <button class="btn sec" id="last" style="display:none">Последние результаты</button>
+ </div>
+</section>
+
+<!-- ============ Результаты ============ -->
+<section class="screen" id="s-res">
+ <div class="nav"><span class="back" id="back"><svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2L2 10l8 8" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Проверка</span><span class="t">Результаты</span></div>
+ <div class="col wide">
+  <h1>Результаты</h1>
+  <p class="sub" id="r-sub"></p>
+  <div class="tiles">
+   <div class="tile e"><b id="t-e">0</b><span>нарушений</span></div>
+   <div class="tile w"><b id="t-w">0</b><span>внимание</span></div>
+   <div class="tile i"><b id="t-i">0</b><span>к сведению</span></div>
+   <div class="tile b"><b id="t-dt">0 / 0</b><span>оформление / технические</span></div>
+  </div>
+  <div class="actions">
+   <button class="btn" data-open="report">Отчёт</button>
+   <button class="btn sec" data-open="pdf">PDF с комментариями</button>
+   <button class="btn sec" data-open="folder">Папка</button>
+  </div>
+  <div id="ai-card"></div>
+  <div class="bar">
+   <div class="seg" id="seg">
+    <div class="on" data-f="all">Все</div><div data-f="design">Оформление</div><div data-f="tech">Технические</div>
+    <div data-f="claude">Claude</div>
+   </div>
+   <select id="sort" class="pill-select">
+    <option value="sev">По важности</option><option value="n">По номеру</option>
+    <option value="sheet">По листу</option><option value="group">По разделу</option></select>
+   <select id="sevf" class="pill-select">
+    <option value="">Все виды</option><option value="error">Нарушения</option>
+    <option value="warn">Внимание</option><option value="info">К сведению</option></select>
+  </div>
+  <div id="list"></div>
+ </div>
+</section>
+
+<!-- ============ Нормативы ============ -->
+<section class="screen" id="s-norms">
+ <div class="nav"><span class="t">Нормативы</span></div>
+ <div class="col">
+  <h1>Нормативы</h1>
+  <p class="sub">Документы, на которые опирается проверка</p>
+  <div class="search"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5.2" stroke="var(--mute)" stroke-width="1.8" fill="none"/><path d="M11 11l3.5 3.5" stroke="var(--mute)" stroke-width="1.8" stroke-linecap="round"/></svg>
+   <input type="text" id="nq" placeholder="Поиск по пунктам, например «огнезадерживающий клапан»"></div>
+  <div id="hits"></div>
+  <div class="gh">Папка</div>
+  <div class="group">
+   <div class="row tap" id="ndir-row"><div class="grow name small" id="ndir"></div><span class="chev">›</span></div>
+   <div class="row tap" id="nopen"><span class="link">Открыть папку</span></div>
+   <div class="row tap" id="nreload"><span class="link">Перечитать документы</span></div>
+  </div>
+  <div class="gf">Положите в папку PDF нормативов — программа разберёт их на пункты. Для аудита нужны ГОСТ 21.602 и СП РК 4.02-101.</div>
+  <div class="gh">Загружено</div>
+  <div class="group" id="ndocs"><div class="row small">Загрузка…</div></div>
+ </div>
+</section>
+
+<!-- ============ Настройки ============ -->
+<section class="screen" id="s-set">
+ <div class="nav"><span class="t">Настройки</span></div>
+ <div class="col">
+  <h1>Настройки</h1>
+  <div class="gh">Claude</div>
+  <div class="group">
+   <div class="row"><span class="lbl">Ключ API</span><input type="password" id="key" placeholder="sk-ant-…"></div>
+   <div class="row"><span class="lbl">Модель</span><select id="model">
+     <option value="claude-opus-5-5">Claude Opus 5.5</option>
+     <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option></select><span class="chev">›</span></div>
+   <div class="row"><span class="lbl">Глубина анализа</span><select id="effort">
+     <option value="medium">Средняя</option><option value="high">Высокая</option><option value="max">Максимальная</option></select><span class="chev">›</span></div>
+  </div>
+  <div class="gf" id="key-hint">Ключ создаётся в Anthropic Console (console.anthropic.com → API Keys) и хранится только на этом компьютере. Аудит одного альбома с нормативами — порядка 150–200 тыс. входных токенов; повторные запуски дешевле за счёт кэша.</div>
+  <div class="gh">Справочники</div>
+  <div class="group">
+   <div class="row icon tap" data-open2="equip"><div class="ic g">▤</div><div class="grow">Оборудование<div class="small">марки из выносок, названия в спецификации, сверять ли размер</div></div><span class="chev">›</span></div>
+   <div class="row icon tap" data-open2="layers"><div class="ic b">≡</div><div class="grow">Слои<div class="small">воздуховоды, лестницы, противопожарные стены</div></div><span class="chev">›</span></div>
+  </div>
+  <div class="gf">Открываются в Excel. После правки сохраните файл как «CSV UTF-8» — изменения применятся при следующей проверке.</div>
+  <div class="gh">О программе</div>
+  <div class="group">
+   <div class="row"><span class="lbl grow">Программа</span><span class="val">Ordinem servare</span></div>
+   <div class="row"><span class="lbl grow">Разработчик</span><span class="val">ISIS-Tech</span></div>
+   <div class="row"><span class="lbl grow">Версия</span><span class="val">{{VERSION}}</span></div>
+   <div class="row"><span class="lbl grow">Проверка сечений</span><span class="val">векторный PDF</span></div>
+  </div>
+ </div>
+</section>
+
+<nav class="tabs">
+ <div class="tab on" data-s="s-check"><svg viewBox="0 0 28 28"><rect x="5" y="3.5" width="18" height="21" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 14l3 3 6-6.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Проверка</div>
+ <div class="tab" data-s="s-norms"><svg viewBox="0 0 28 28"><path d="M5 5.5c3-1.5 6-1.5 9 0v18c-3-1.5-6-1.5-9 0zM23 5.5c-3-1.5-6-1.5-9 0v18c3-1.5 6-1.5 9 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Нормативы</div>
+ <div class="tab" data-s="s-set"><svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="3.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M14 3.5v3M14 21.5v3M3.5 14h3M21.5 14h3M6.6 6.6l2.1 2.1M19.3 19.3l2.1 2.1M6.6 21.4l2.1-2.1M19.3 8.7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Настройки</div>
+</nav>
+
+<div class="sheet" id="pv"><div class="pane"><div class="grab"></div>
+ <div style="display:flex;align-items:flex-start;gap:12px"><div class="fd" id="pv-dot"></div>
+  <div class="grow"><b id="pv-title"></b><div class="small" id="pv-meta"></div></div>
+  <span class="link" id="pv-close">Готово</span></div>
+ <div class="pvimg"><img id="pv-img" alt=""><div class="small" id="pv-noimg" style="display:none;padding:30px;text-align:center">Место на листе не определено</div></div>
+ <div class="pvnav"><span class="link" id="pv-prev">‹ Пред.</span><span class="small" id="pv-k"></span><span class="link" id="pv-next">След. ›</span></div>
+ <div class="small" id="pv-fix" style="margin-top:8px;color:var(--ink2)"></div>
+ <button class="btn" id="pv-open" style="margin-top:14px">Открыть в PDF на этой странице</button>
+</div></div>
+
+<div class="sheet" id="prog"><div class="pane"><div class="grab"></div>
+ <div style="display:flex;align-items:center;gap:12px"><div class="spin" id="spin"></div><div class="grow"><b id="p-title">Идёт проверка…</b><div class="small" id="p-last"></div></div></div>
+ <div class="log" id="plog"></div>
+ <button class="btn sec" id="p-close" style="display:none">Закрыть</button>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN="{{TOKEN}}";
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+async function api(path,body,method){const o={method:method||(body!==undefined?"POST":"GET"),headers:{"X-Token":TOKEN}};
+ if(body!==undefined){if(body instanceof Blob){o.body=body}else{o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body)}}
+ const r=await fetch(path,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||("Ошибка "+r.status));return j}
+function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),2600)}
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let S={},RES=null,FILTER="all";
+
+// навигация
+function show(id){$$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
+ $$(".tab").forEach(t=>t.classList.toggle("on",t.dataset.s===id||(id==="s-res"&&t.dataset.s==="s-check")))}
+$$(".tab").forEach(t=>t.onclick=()=>show(t.dataset.s));
+$$(".screen").forEach(s=>s.addEventListener("scroll",()=>s.querySelector(".nav").classList.toggle("sc",s.scrollTop>40)));
+$("#back").onclick=()=>show("s-check");
+
+// состояние
+function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+" МБ":Math.max(1,Math.round(b/1024))+" КБ"}
+function render(){
+ $("#code").value=S.code||"";$("#name").value=S.name||"";
+ ["stamp","sections","callouts","tech","ai"].forEach(k=>$("#"+k).checked=!!S[k]);
+ $("#scale").value=S.scale||"Авто";$("#tolv").textContent=S.tol;$("#pages").value=S.pages||"";
+ $("#outdir-v").textContent=S.outdir||"рядом с PDF";
+ $("#ai-sub").textContent=S.api_key_set?"Claude · ключ API задан":"Claude · нужен ключ API в настройках";
+ $("#key").placeholder=S.api_key_hint||"sk-ant-…";$("#model").value=S.model;$("#effort").value=S.effort;
+ $("#ndir").textContent=S.norms_dir;
+ const f=$("#files");
+ f.innerHTML=(S.files_info||[]).map(x=>`<div class="row icon"><div class="ic r">PDF</div><div class="grow"><div class="name">${esc(x.name)}</div>
+  <div class="small">${x.pages??"?"} стр. · ${fmtSize(x.size)}</div></div><span class="del" data-p="${esc(x.path)}" title="Убрать">⊖</span></div>`).join("")+
+  `<div class="row icon tap" id="add"><div class="ic b">+</div><span class="link">Добавить PDF…</span></div>`;
+ $("#add").onclick=async()=>{try{S=(await api("/api/files/pick",{})).settings;render()}catch(e){toast(e.message)}};
+ $$(".del").forEach(d=>d.onclick=async()=>{S=(await api("/api/files/remove",{path:d.dataset.p})).settings;render()});
+}
+async function save(patch){Object.assign(S,patch);try{S=(await api("/api/settings",patch)).settings}catch(e){toast(e.message)}}
+$("#code").onchange=e=>save({code:e.target.value});$("#name").onchange=e=>save({name:e.target.value});
+["stamp","sections","callouts","tech","ai"].forEach(k=>$("#"+k).onchange=e=>{
+ if(k==="ai"&&e.target.checked&&!S.api_key_set){toast("Сначала укажите ключ API в настройках");}
+ save({[k]:e.target.checked})});
+$("#scale").onchange=e=>save({scale:e.target.value});$("#pages").onchange=e=>save({pages:e.target.value});
+$("#tolm").onclick=()=>{if(S.tol>1)save({tol:S.tol-1}).then(render)};$("#tolp").onclick=()=>{if(S.tol<50)save({tol:S.tol+1}).then(render)};
+$("#outdir-row").onclick=async()=>{const r=await api("/api/pick_dir",{initial:S.outdir});
+ if(r.path){await save({outdir:r.path});render()}else if(S.outdir&&confirm("Сохранять результаты рядом с PDF?")){await save({outdir:""});render()}};
+$("#key").onchange=async e=>{await save({api_key:e.target.value.trim()});e.target.value="";render();toast("Ключ сохранён")};
+$("#model").onchange=e=>save({model:e.target.value});$("#effort").onchange=e=>save({effort:e.target.value});
+$("#detect").onclick=async()=>{try{const g=await api("/api/detect",{});await save({code:g.code,name:g.name});render();toast("Шифр и наименование взяты из штампа")}catch(e){toast(e.message)}};
+
+// перетаскивание файлов
+const drop=$("#drop");
+["dragenter","dragover"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot")}));
+["dragleave","drop"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();if(ev==="drop"||e.target===document.documentElement)drop.classList.remove("hot")}));
+document.addEventListener("drop",async e=>{drop.classList.remove("hot");const fs=[...e.dataTransfer.files].filter(f=>/\.pdf$/i.test(f.name));
+ if(!fs.length)return toast("Нужны файлы PDF");toast("Загружаю "+fs.length+" файл(ов)…");
+ for(const f of fs){const r=await fetch("/api/upload",{method:"POST",headers:{"X-Token":TOKEN,"X-Name":encodeURIComponent(f.name)},body:f});
+  const j=await r.json();if(j.settings)S=j.settings}render();show("s-check")});
+
+// запуск
+let since=0,timer=null;
+$("#run").onclick=async()=>{try{await api("/api/run",{});}catch(e){return toast(e.message)}
+ since=0;$("#plog").textContent="";$("#p-title").textContent="Идёт проверка…";$("#spin").style.display="";$("#p-close").style.display="none";
+ $("#prog").classList.add("on");poll()};
+async function poll(){const j=await api("/api/job?since="+since);since=j.n;
+ if(j.log.length){$("#plog").textContent+=j.log.join("\n")+"\n";$("#plog").scrollTop=1e9;$("#p-last").textContent=j.log[j.log.length-1].slice(0,120)}
+ if(j.running){timer=setTimeout(poll,600);return}
+ $("#spin").style.display="none";
+ if(j.error){$("#p-title").textContent="Проверка не выполнена";$("#p-close").style.display="";return}
+ RES=j.result;$("#prog").classList.remove("on");showResults();$("#last").style.display=""}
+$("#p-close").onclick=()=>$("#prog").classList.remove("on");
+$("#last").onclick=()=>RES&&showResults();
+
+// результаты
+const SEVN={error:0,warn:1,info:2},SEVRU={error:"Нарушение",warn:"Внимание",info:"К сведению"};
+let SORT="sev",SEVF="";
+function showResults(){const r=RES,c=r.counts;
+ $("#r-sub").textContent=(r.project.code||"")+" · "+r.sheets.length+" листов · "+(r.project.name||"").slice(0,90);
+ $("#t-e").textContent=c.findings.error;$("#t-w").textContent=c.findings.warn;$("#t-i").textContent=c.findings.info;
+ $("#t-dt").textContent=c.design+" / "+c.tech;
+ const ai=r.ai;$("#ai-card").innerHTML=ai&&ai.error?`<div class="card" style="color:var(--red)">Аудит Claude через API не выполнен: ${esc(ai.error)}</div>`:"";
+ $("#seg [data-f=claude]").textContent="Claude"+(c.claude?" · "+c.claude:"");
+ renderList();show("s-res");$("#s-res").scrollTop=0}
+$$("#seg div").forEach(d=>d.onclick=()=>{FILTER=d.dataset.f;$$("#seg div").forEach(x=>x.classList.toggle("on",x===d));renderList()});
+$("#sort").onchange=e=>{SORT=e.target.value;renderList()};$("#sevf").onchange=e=>{SEVF=e.target.value;renderList()};
+function pages(f){const s=new Set();(f.locs||[]).forEach(l=>s.add(l.page+1));const a=[...s];
+ return a.length?"стр. PDF "+a.slice(0,6).join(", ")+(a.length>6?"…":""):(f.page?"стр. PDF "+f.page:"")}
+function sheetKey(f){const m=String(f.sheet||"").match(/\d+/);return m?+m[0]:9999}
+function sorted(fs){const by={sev:(a,b)=>SEVN[a.severity]-SEVN[b.severity]||a.n-b.n,n:(a,b)=>a.n-b.n,
+ sheet:(a,b)=>sheetKey(a)-sheetKey(b)||SEVN[a.severity]-SEVN[b.severity],group:(a,b)=>a.group.localeCompare(b.group)||SEVN[a.severity]-SEVN[b.severity]};
+ return fs.filter(f=>!SEVF||f.severity===SEVF).sort(by[SORT])}
+function counts(fs){const c={error:0,warn:0,info:0};fs.forEach(f=>c[f.severity]++);
+ return `<span class="cnt e">${c.error}</span><span class="cnt w">${c.warn}</span><span class="cnt i">${c.info}</span>`}
+function cell(f,src){return `<div class="row fi" data-id="${src}:${f.n}"><span class="num">${typeof f.n==="number"?"№"+f.n:esc(f.n)}</span>
+ <div class="fd ${f.severity}"></div><div class="grow"><div>${esc(f.text)}</div>
+ <div class="small">${f.sheet?"Лист "+esc(f.sheet)+" · ":""}<span class="pg">${pages(f)}</span>${pages(f)?" · ":""}${esc(f.norm)}${f.clause?" п. "+esc(f.clause):""}
+ ${f.source==="ИИ"||f.source==="Claude"?`<span class="tag ai">${esc(f.source)}</span>`:'<span class="tag">авто</span>'}${f.quote&&f.quote_ok===false?'<span class="tag unv">цитата не подтверждена</span>':""}</div></div><span class="chev">›</span></div>`}
+function block(title,fs,src){const list=sorted(fs);
+ let body;if(SORT==="group"){const g={};list.forEach(f=>(g[f.group]=g[f.group]||[]).push(f));
+  body=Object.entries(g).map(([k,v])=>`<div class="gh">${esc(k)} · ${v.length}</div><div class="group">${v.map(f=>cell(f,src)).join("")}</div>`).join("")}
+ else body=list.length?`<div class="group" style="margin-top:8px">${list.map(f=>cell(f,src)).join("")}</div>`:`<div class="empty">Замечаний нет</div>`;
+ return `<div><div class="ch">${title} ${counts(fs)}</div>${body}</div>`}
+function renderList(){const r=RES,L=$("#list"),F=r.findings;
+ if(FILTER==="claude")return renderClaude();
+ const d=F.filter(f=>f.kind==="design"),t=F.filter(f=>f.kind==="tech");
+ L.innerHTML=FILTER==="all"?`<div class="cols">${block("Оформление",d,"a")}${block("Технические",t,"a")}</div>`:
+  FILTER==="design"?block("Оформление",d,"a"):block("Технические",t,"a");bindRows()}
+function renderClaude(){const r=RES,cl=r.claude,L=$("#list");
+ const req=`Проведи аудит раздела ОВ по файлу «${r.claude_data}». Результат сохрани в «${r.claude_json}» в формате, описанном в начале файла.`;
+ if(!cl||cl.error){L.innerHTML=`<div class="card"><b>Аудит Claude ещё не загружен</b>
+  <div class="small" style="margin:6px 0 10px">${cl&&cl.error?esc(cl.error)+"<br>":""}Claude проводит независимый аудит прямо в приложении Claude — без ключа API.
+  Откройте приложение Claude и отправьте запрос ниже. Когда Claude сохранит результат, нажмите «Загрузить результат».</div>
+  <div class="log" style="max-height:none;margin:0 0 10px">${esc(req)}</div>
+  <div class="actions" style="grid-template-columns:1fr 1fr"><button class="btn" id="cl-copy">Скопировать запрос</button>
+  <button class="btn sec" id="cl-load">Загрузить результат</button></div></div>`;
+  $("#cl-copy").onclick=()=>navigator.clipboard.writeText(req).then(()=>toast("Запрос скопирован")).catch(()=>toast("Не удалось скопировать"));
+  $("#cl-load").onclick=loadClaude;return}
+ const F=cl.findings.map((f,i)=>Object.assign(f,{n:"C"+(i+1)}));
+ L.innerHTML=`<div class="card"><b>Вывод Claude</b> <span class="small">· ${esc(cl.mtime||"")}</span>
+  <div style="margin-top:6px;color:var(--ink2)">${esc(cl.summary||"")}</div>
+  <div style="margin-top:8px"><span class="link" id="cl-load">Обновить</span></div></div>
+  <div class="cols">${block("Оформление",F.filter(f=>f.kind==="design"),"c")}${block("Технические",F.filter(f=>f.kind!=="design"),"c")}</div>`;
+ $("#cl-load").onclick=loadClaude;bindRows()}
+async function loadClaude(){try{RES=await api("/api/claude/reload",{});showResults();FILTER="claude";
+ $$("#seg div").forEach(x=>x.classList.toggle("on",x.dataset.f==="claude"));renderList();
+ toast(RES.claude&&!RES.claude.error?"Аудит Claude загружен":"Файл аудита Claude пока не найден")}catch(e){toast(e.message)}}
+function findById(id){const[src,n]=id.split(":");return src==="c"?(RES.claude.findings.find(f=>f.n===n)):RES.findings.find(f=>String(f.n)===n)}
+function bindRows(){$$(".fi").forEach(x=>x.onclick=()=>openPreview(findById(x.dataset.id),0,x.dataset.id))}
+let PV=null;
+function openPreview(f,k,id){if(!f)return;PV={f,k,id};const locs=f.locs||[];const l=locs[k];
+ $("#pv-dot").className="fd "+f.severity;$("#pv-title").textContent=(typeof f.n==="number"?"№"+f.n+" · ":"")+SEVRU[f.severity]+" · "+f.group;
+ $("#pv-meta").textContent=[f.sheet?"Лист "+f.sheet:"",l?"стр. PDF "+(l.page+1)+" · "+(l.file||""):"",f.norm+(f.clause?" п. "+f.clause:"")].filter(Boolean).join(" · ");
+ $("#pv-fix").innerHTML=esc(f.text)+(f.fix?"<br><br><b>Как исправить:</b> "+esc(f.fix):"")+(f.quote?`<div class="q">«${esc(f.quote)}»</div>`:"");
+ const img=$("#pv-img");if(l){img.style.display="";$("#pv-noimg").style.display="none";
+  img.src=`/api/preview?id=${encodeURIComponent(id)}&k=${k}&t=${TOKEN}`}else{img.style.display="none";$("#pv-noimg").style.display=""}
+ $("#pv-k").textContent=locs.length>1?`место ${k+1} из ${locs.length}`:"";
+ $("#pv-prev").style.visibility=k>0?"visible":"hidden";$("#pv-next").style.visibility=k<locs.length-1?"visible":"hidden";
+ $("#pv-open").style.display=l?"":"none";$("#pv").classList.add("on")}
+$("#pv-prev").onclick=()=>openPreview(PV.f,PV.k-1,PV.id);$("#pv-next").onclick=()=>openPreview(PV.f,PV.k+1,PV.id);
+$("#pv-close").onclick=()=>$("#pv").classList.remove("on");
+$("#pv").onclick=e=>{if(e.target.id==="pv")$("#pv").classList.remove("on")};
+$("#pv-open").onclick=()=>api("/api/open",{what:"page",id:PV.id,k:PV.k}).catch(e=>toast(e.message));
+$$("[data-open]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{what:b.dataset.open})}catch(e){toast(e.message)}});
+$$("[data-open2]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{what:b.dataset.open2})}catch(e){toast(e.message)}});
+
+// нормативы
+function renderNorms(list){$("#ndocs").innerHTML=list&&list.length?list.map(d=>`<div class="row icon"><div class="ic ${/ГОСТ/.test(d.code)?"b":"g"}">§</div>
+ <div class="grow"><div class="name"><b>${esc(d.code)}</b></div><div class="small name">${esc(d.title)}</div></div>
+ <span class="val">${d.error?"ошибка":d.pages+" с. · "+d.clauses+" п."}</span></div>`).join(""):`<div class="row small">В папке нет PDF нормативов</div>`}
+$("#nreload").onclick=async()=>{toast("Перечитываю…");const r=await api("/api/norms/reload",{force:true});renderNorms(r.norms);toast("Готово")};
+$("#nopen").onclick=()=>api("/api/open",{what:"norms_dir"}).catch(e=>toast(e.message));
+$("#ndir-row").onclick=async()=>{const r=await api("/api/pick_dir",{initial:S.norms_dir});if(!r.path)return;
+ const j=await api("/api/norms/reload",{dir:r.path});S=j.settings;render();renderNorms(j.norms)};
+let qt=null;$("#nq").oninput=e=>{clearTimeout(qt);const q=e.target.value.trim();if(q.length<3){$("#hits").innerHTML="";return}
+ qt=setTimeout(async()=>{const h=await api("/api/norms/search?q="+encodeURIComponent(q));
+  $("#hits").innerHTML=h.length?`<div class="gh">Найдено · ${h.length}</div><div class="group">`+h.map(x=>`<div class="row hit"><div class="grow">
+  <div class="code">${esc(x.code)}, п. ${esc(x.n)} <span class="small">· стр. ${x.page}</span></div><div class="txt">${esc(x.text)}</div></div></div>`).join("")+"</div>":
+  `<div class="empty">Ничего не найдено</div>`},250)};
+
+// старт
+(async function init(){const st=await api("/api/state");S=st.settings;render();
+ if(st.norms)renderNorms(st.norms);else setTimeout(async function w(){const s=await api("/api/state");s.norms?renderNorms(s.norms):setTimeout(w,800)},800);
+ if(st.job.running){$("#prog").classList.add("on");poll()}})();
+setInterval(()=>api("/api/ping",{}).catch(()=>{}),10000);
+</script></body></html>
