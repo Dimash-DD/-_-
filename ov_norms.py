@@ -19,7 +19,7 @@ except ImportError:
 
 DEFAULT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "Нормативная документация для проверки")
 CACHE = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "ОВ-Проверка", "norms.json")
-CACHE_VER = 7
+CACHE_VER = 8
 
 RE_CODE = re.compile(r"(ГОСТ\s*Р?\s*\d+(?:\.\d+)*\s*[-—–]\s*\d{2,4}|"
                      r"С[ПН]\s*РК\s*\d+(?:\.\d+)*\s*[-—–]\s*\d+(?:\s*[-—–]\s*\d{4})?|"
@@ -118,7 +118,7 @@ class Norms:
                 else:
                     clauses, full = split_clauses(pages)
                     first = " ".join(pages[:2])
-                    d = {"file": name, "code": doc_code(name, first), "title": doc_title(first),
+                    d = {"file": name, "code": doc_code(name, first), "title": doc_title(title_text(path, first)),
                          "pages": len(pages), "clauses": clauses, "text": full}
                 cache[key] = d
             self.docs.append(d)
@@ -182,10 +182,55 @@ class Norms:
         return len(q) >= 12 and q[:120] in norm(d["text"])
 
 
+def _line_text(chars):
+    """Строка из символов PDF: пробел ставится по расстоянию между буквами, а не по тексту файла.
+
+    В некоторых PDF заголовок набран вразрядку или кусками, и обычное чтение даёт
+    «УСЛО ВНЫ Е ОБОЗНАЧЕНИЯ ЭЛЕМ ЕНТО В». Здесь пробел ставится только там,
+    где промежуток заметно больше обычного промежутка между буквами в этой строке.
+    """
+    chars = [c for c in chars if c["c"].strip()]
+    if not chars:
+        return ""
+    size = sorted(c["size"] for c in chars)[len(chars) // 2]
+    gaps = [b["bbox"][0] - a["bbox"][2] for a, b in zip(chars, chars[1:])]
+    if not gaps:
+        return chars[0]["c"]
+    base = max(0.0, sorted(gaps)[len(gaps) // 2])          # обычный промежуток между буквами
+    out = chars[0]["c"]
+    for g, c in zip(gaps, chars[1:]):
+        if g > base + 0.18 * size or g < -size:            # шире обычного или переход назад
+            out += " "
+        out += c["c"]
+    return out
+
+
+def title_text(path, fallback=""):
+    """Текст первых двух страниц для поиска наименования, со словами, собранными по геометрии."""
+    if not path.lower().endswith(".pdf"):
+        return fallback
+    try:
+        doc = pymupdf.open(path)
+        lines = []
+        for pno in range(min(2, doc.page_count)):
+            for b in doc[pno].get_text("rawdict")["blocks"]:
+                for l in b.get("lines", []):
+                    if abs(l.get("dir", (1, 0))[1]) > 0.1:       # повёрнутый текст пропускаем
+                        continue
+                    chars = [dict(ch, size=sp["size"]) for sp in l["spans"] for ch in sp["chars"]]
+                    t = _line_text(chars)
+                    if t:
+                        lines.append(t)
+            lines.append("")
+        return "\n".join(lines) or fallback
+    except Exception:
+        return fallback
+
+
 def doc_title(first_text):
     """Наименование документа с титульного листа (строки заглавными буквами)."""
     skip = re.compile(r"СОВЕТ|МЕЖГОСУДАРСТВ|СТАНДАРТ$|ИЗДАНИЕ|КОМИТЕТ|РЕСПУБЛИК|ГОСУДАРСТВ|СВОД ПРАВИЛ|"
-                      r"ЕРЕЖЕЛЕР|ҚАЗАҚСТАН|ҚҰРЫЛЫС|ЖЫЛЫТУ|КОНДИЦИОНЕРЛЕУ|СОДЕРЖАНИЕ|^ГОСТ|^СП |^ҚР", re.I)
+                      r"СТРОИТЕЛЬНЫЕ НОРМЫ|НОРМЫ РК$|ОФИЦИАЛЬНОЕ|^СН |ЕРЕЖЕЛЕР|ҚАЗАҚСТАН|ҚҰРЫЛЫС|ЖЫЛЫТУ|КОНДИЦИОНЕРЛЕУ|СОДЕРЖАНИЕ|^ГОСТ|^СП |^ҚР", re.I)
     good = lambda l: (len(l) > 6 and l.upper() == l and re.search("[А-ЯЁ]{4}", l) and not skip.search(l)
                       and "..." not in l and not re.match(r"ВВЕДЕНИЕ|ПРЕДИСЛОВИЕ|\d", l))
     title = []

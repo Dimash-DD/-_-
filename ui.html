@@ -38,6 +38,7 @@ h1{font:700 34px/1.15 -apple-system,"SF Pro Display","Segoe UI Variable Display"
 .grow{flex:1;min-width:0}
 .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .small{font-size:13px;color:var(--mute)}
+.ntitle{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 input[type=text],input[type=password],textarea,select{font:inherit;color:var(--ink);background:transparent;border:0;outline:0;width:100%;text-align:right}
 textarea{text-align:left;resize:none;min-height:44px;line-height:1.35}
 select{appearance:none;-webkit-appearance:none;cursor:pointer;text-align:right;color:var(--mute);text-align-last:right}
@@ -433,7 +434,7 @@ $$("[data-open2]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{wha
 
 // нормативы
 function renderNorms(list){$("#ndocs").innerHTML=list&&list.length?list.map(d=>`<div class="row icon"><div class="ic ${/ГОСТ/.test(d.code)?"b":"g"}">§</div>
- <div class="grow"><div class="name"><b>${esc(d.code)}</b></div><div class="small name">${esc(d.title)}</div></div>
+ <div class="grow" title="${esc(d.title?d.code+" — "+d.title+"\n"+d.file:d.file)}"><div class="name"><b>${esc(d.code)}</b></div><div class="small ntitle">${esc(d.title||d.file)}</div></div>
  <span class="val">${d.error?"ошибка":d.pages+" с. · "+d.clauses+" п."}</span></div>`).join(""):`<div class="row small">В папке нет PDF нормативов</div>`}
 $("#nreload").onclick=async()=>{toast("Перечитываю…");const r=await api("/api/norms/reload",{force:true});renderNorms(r.norms);toast("Готово")};
 $("#nopen").onclick=()=>api("/api/open",{what:"norms_dir"}).catch(e=>toast(e.message));
