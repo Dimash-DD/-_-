@@ -440,7 +440,7 @@ function sortNorms(list){return [...list].sort((a,b)=>NORM_ORDER.indexOf(normKin
  String(a.code).localeCompare(String(b.code),"ru",{numeric:true,sensitivity:"base"}))}
 function renderNorms(list){list=list&&sortNorms(list);$("#ndocs").innerHTML=list&&list.length?list.map(d=>`<div class="row icon"><div class="ic n-${normKind(d)}">§</div>
  <div class="grow" title="${esc(d.title?d.code+" — "+d.title+"\n"+d.file:d.file)}"><div class="name"><b>${esc(d.code)}</b></div><div class="small ntitle">${esc(d.title||d.file)}</div></div>
- <span class="val">${d.error?"ошибка":d.pages+" с. · "+d.clauses+" п."}</span></div>`).join(""):`<div class="row small">В папке нет PDF нормативов</div>`}
+ <span class="val" title="${esc(d.error||"")}">${d.error?"ошибка":d.pages+" с. · "+d.clauses+" п."}</span></div>`).join(""):`<div class="row small">В папке нет нормативов (PDF, Word, TXT)</div>`}
 $("#nreload").onclick=async()=>{toast("Перечитываю…");const r=await api("/api/norms/reload",{force:true});renderNorms(r.norms);toast("Готово")};
 $("#nopen").onclick=()=>api("/api/open",{what:"norms_dir"}).catch(e=>toast(e.message));
 $("#ndir-row").onclick=async()=>{const r=await api("/api/pick_dir",{initial:S.norms_dir});if(!r.path)return;

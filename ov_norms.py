@@ -3,7 +3,7 @@
 """
 Ordinem servare: база нормативных документов.
 
-Читает PDF / TXT из папки нормативов и всех вложенных папок, режет текст на пункты (5.3, 6.2.14 ...)
+Читает PDF, TXT и Word (.docx, .doc, .rtf) из папки нормативов и всех вложенных папок, режет текст на пункты (5.3, 6.2.14 ...)
 и даёт поиск по ним. Разобранный текст кэшируется в %APPDATA%\\ОВ-Проверка\\norms.json,
 поэтому повторный запуск быстрый; при замене файла кэш обновляется сам.
 """
@@ -12,6 +12,8 @@ import json
 import os
 import re
 
+import ov_word
+
 try:
     import pymupdf
 except ImportError:
@@ -19,7 +21,7 @@ except ImportError:
 
 DEFAULT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "Нормативная документация для проверки")
 CACHE = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "ОВ-Проверка", "norms.json")
-CACHE_VER = 9
+CACHE_VER = 10
 
 RE_CODE = re.compile(r"(ГОСТ\s*Р?\s*\d+(?:\.\d+)*\s*[-—–]\s*\d{2,4}|"
                      r"С[ПН]\s*РК\s*\d+(?:\.\d+)*\s*[-—–]\s*\d+(?:\s*[-—–]\s*\d{4})?|"
@@ -71,7 +73,9 @@ def doc_code(name, first_text):
         c = RE_CODE.match(rest) or RE_OWN.match(rest)
         if c:
             return m.group(0).strip()[:1].upper() + m.group(0).strip()[1:].lower() + " " + _norm_code(c.group(1))
-    text = (first_text or "").replace("\n", " ")
+    text = (first_text or "")[:1500].replace("\n", " ")       # только титульная часть
+    if re.search(r"Об\s+утверждении|ПРИКАЗЫВАЮ", text) or re.match(r"(Об утверждении|Приказ|Санитарн|Правила|Закон)", st, re.I):
+        return stem                     # приказ РК: обозначения в тексте — ссылки на другие документы
     for rx in (RE_OWN, RE_CODE):
         for m in rx.finditer(text):
             before = text[max(0, m.start() - 4):m.start()]
@@ -81,7 +85,12 @@ def doc_code(name, first_text):
     return stem
 
 
+NORM_EXT = (".pdf", ".txt") + ov_word.WORD_EXT
+
+
 def read_pages(path):
+    if path.lower().endswith(ov_word.WORD_EXT):
+        return ov_word.read_word(path)
     if path.lower().endswith(".txt"):
         with open(path, encoding="utf-8", errors="replace") as fo:
             return [fo.read()]
@@ -104,13 +113,13 @@ def split_clauses(pages):
         offsets.append((len(full), i + 1))
         full += clean(t) + "\n"
     for m in RE_CLAUSE.finditer(full):
-        marks.append((m.start(), m.group(1)))
+        marks.append((m.start(1), m.group(1)))       # start(1): без пробелов и перевода строки перед номером
     if len(marks) < 20:                     # нет пунктов вида 6.2.14 — приказ или правила с нумерацией «15.»
-        single = [(m.start(), m.group(1)) for m in RE_CLAUSE1.finditer(full)]
+        single = [(m.start(1), m.group(1)) for m in RE_CLAUSE1.finditer(full)]
         if len(single) >= 50:
             marks = single
     for m in RE_APPENDIX.finditer(full):
-        marks.append((m.start(), "Прил. " + m.group(1)))
+        marks.append((m.start() + len(m.group(0)) - len(m.group(0).lstrip()), "Прил. " + m.group(1)))
     marks.sort()
     out = []
     for k, (pos, n) in enumerate(marks):
@@ -124,7 +133,7 @@ def split_clauses(pages):
 
 
 def list_files(folder):
-    """PDF и TXT в папке и во всех вложенных папках; пути относительно folder, через «/».
+    """PDF, TXT и Word в папке и во всех вложенных папках; пути относительно folder, через «/».
 
     Пропускаются скрытые и служебные папки (.git, __pycache__ и т. п.) и временные
     файлы Office «~$…».
@@ -133,7 +142,7 @@ def list_files(folder):
     for root, dirs, files in os.walk(folder):
         dirs[:] = sorted(d for d in dirs if not d.startswith((".", "__", "~")))
         for n in files:
-            if n.lower().endswith((".pdf", ".txt")) and not n.startswith(("~$", ".")):
+            if n.lower().endswith(NORM_EXT) and not n.startswith(("~$", ".")):
                 rel = os.path.relpath(os.path.join(root, n), folder)
                 out.append(rel.replace(os.sep, "/"))
     return sorted(out, key=lambda r: (r.count("/"), r.lower()))
@@ -323,7 +332,8 @@ def doc_title(first_text):
     if m:
         return " ".join(m.group(1).split())[:160]
     # приказы РК (adilet.zan.kz): первая строка «Об утверждении …» до «Приказ …»
-    m = re.match(r"\s*(Об\s+утверждении\s.+?)(?=\s*Приказ\b|\s*Постановлени|\n\s*\n)", text, re.S)
+    m = re.search(r"(Об\s+утверждении\s.+?)(?=\s*Приказ\b|\s*Постановлени|\s*ПРИКАЗЫВАЮ|\s*В\s+соответствии|\n\s*\n|\n\s{3,})",
+                  text[:1500], re.S)
     if m:
         return " ".join(m.group(1).split())[:160]
     skip = re.compile(r"СОВЕТ|МЕЖГОСУДАРСТВ|СТАНДАРТ$|ИЗДАНИЕ|КОМИТЕТ|РЕСПУБЛИК|ГОСУДАРСТВ|СВОД ПРАВИЛ|"
