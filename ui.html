@@ -35,6 +35,7 @@ h1{font:700 34px/1.15 -apple-system,"SF Pro Display","Segoe UI Variable Display"
 .chev{color:#c4c4c6;font-size:18px;margin-left:2px}
 .ic{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:#fff;flex:0 0 30px;font-size:15px}
 .ic.b{background:var(--blue)}.ic.r{background:var(--red)}.ic.o{background:var(--orange)}.ic.g{background:var(--green)}.ic.p{background:#af52de}.ic.k{background:#8e8e93}
+.ic.n-sp{background:#4f9a6c}.ic.n-gost{background:#4f80b8}.ic.n-sanpin{background:#8a63b5}.ic.n-other{background:#8e8e93}
 .grow{flex:1;min-width:0}
 .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .small{font-size:13px;color:var(--mute)}
@@ -433,7 +434,11 @@ $$("[data-open]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{what
 $$("[data-open2]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{what:b.dataset.open2})}catch(e){toast(e.message)}});
 
 // нормативы
-function renderNorms(list){$("#ndocs").innerHTML=list&&list.length?list.map(d=>`<div class="row icon"><div class="ic ${/ГОСТ/.test(d.code)?"b":"g"}">§</div>
+const NORM_ORDER=["sp","gost","sanpin","other"];
+function normKind(d){return NORM_ORDER.includes(d.kind)?d.kind:(/ГОСТ/.test(d.code)?"gost":"other")}
+function sortNorms(list){return [...list].sort((a,b)=>NORM_ORDER.indexOf(normKind(a))-NORM_ORDER.indexOf(normKind(b))||
+ String(a.code).localeCompare(String(b.code),"ru",{numeric:true,sensitivity:"base"}))}
+function renderNorms(list){list=list&&sortNorms(list);$("#ndocs").innerHTML=list&&list.length?list.map(d=>`<div class="row icon"><div class="ic n-${normKind(d)}">§</div>
  <div class="grow" title="${esc(d.title?d.code+" — "+d.title+"\n"+d.file:d.file)}"><div class="name"><b>${esc(d.code)}</b></div><div class="small ntitle">${esc(d.title||d.file)}</div></div>
  <span class="val">${d.error?"ошибка":d.pages+" с. · "+d.clauses+" п."}</span></div>`).join(""):`<div class="row small">В папке нет PDF нормативов</div>`}
 $("#nreload").onclick=async()=>{toast("Перечитываю…");const r=await api("/api/norms/reload",{force:true});renderNorms(r.norms);toast("Готово")};

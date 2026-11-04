@@ -95,6 +95,29 @@ def list_files(folder):
     return sorted(out, key=lambda r: (r.count("/"), r.lower()))
 
 
+KIND_ORDER = ("sp", "gost", "sanpin", "other")
+
+
+def doc_kind(file, code=""):
+    """Вид документа для списка нормативов: sp — СП, СН, СНиП, МСН; gost — ГОСТ;
+    sanpin — СанПиН и санитарно-эпидемиологические требования; other — АВОК, МДС, ПУЭ и прочие.
+
+    Определяется по имени файла: обозначение, найденное в тексте, бывает ссылкой
+    на другой документ (рекомендации АВОК со ссылкой на ГОСТ и т. п.).
+    """
+    name = os.path.basename(file)
+    name = re.sub(r"[_\s]+", " ", name).strip()
+    name = re.sub(r"^SP(?=\s|\d)", "СП", name, flags=re.I)
+    name = re.sub(r"^SN(?=\s|\d)", "СН", name, flags=re.I)
+    if re.search(r"санпин|санитарн", name, re.I):
+        return "sanpin"
+    if re.match(r"(СП|СН|СНиП|МСН)(?![А-Яа-яЁё])", name, re.I) and not re.match(r"сниж|снят", name, re.I):
+        return "sp"
+    if re.match(r"ГОСТ(?![А-Яа-яЁё])|ГОСТР", name, re.I):
+        return "gost"
+    return "other"
+
+
 def stems(text):
     return {w[:6] for w in RE_WORD.findall(text.lower()) if len(w) > 2}
 
@@ -153,6 +176,7 @@ class Norms:
 
     def summary(self):
         return [{"file": d["file"], "code": d["code"], "title": d.get("title", ""),
+                 "kind": doc_kind(d["file"], d["code"]),
                  "pages": d["pages"], "clauses": len(d["clauses"]), "error": d.get("error")}
                 for d in self.docs]
 
