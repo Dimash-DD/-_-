@@ -22,7 +22,7 @@ Ordinem servare, версия 0.2 (прототип, PDF)
 Нужен Python 3.8+ и PyMuPDF:  python -m pip install pymupdf
 PDF должен быть векторным и с текстом (не скан). Если текст выведен
 SHX-шрифтом как линии, подписи не найдутся — в отчёте будет предупреждение.
-Предыдущая версия для DXF лежит рядом: ov_check_dxf_0.1.py
+Предыдущая версия для DXF лежит в папке архив: архив/ov_check_dxf_0.1.py
 """
 
 import argparse
@@ -32,7 +32,6 @@ import html
 import math
 import os
 import re
-import sys
 
 try:
     import pymupdf
@@ -886,7 +885,7 @@ def main(argv=None):
     all_results = []
     for path in a.pdf:
         if not path.lower().endswith(".pdf"):
-            print(f"{path}: пропущен — это не PDF. Версия для DXF: ov_check_dxf_0.1.py")
+            print(f"{path}: пропущен — это не PDF. Версия для DXF: архив/ov_check_dxf_0.1.py")
             continue
         print(f"\n{os.path.basename(path)}")
         all_results += run_file(path, cfg, a)

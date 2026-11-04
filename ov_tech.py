@@ -166,7 +166,6 @@ def check_tech(plans, spec_text="", general_text=""):
     """plans: [{'file','path','page','label','title','sheet': ov_check.Sheet, 'scale': int|None, 'pdf_page'}]"""
     F = []
     plans = [p for p in plans if p.get("scale")]       # только листы-планы с найденным масштабом
-    all_text = spec_text + " " + general_text + " " + " ".join(t["text"] for p in plans for t in p["sheet"].texts)
 
     # --- системы и клапаны на каждом плане
     for p in plans:
