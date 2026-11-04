@@ -40,11 +40,48 @@ ROLE_RE = re.compile(r"^(Разраб|Разработ|Пров|Провер|Н\
 CODE_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё.]+(?:[-–][0-9A-Za-zА-Яа-яЁё.]+){1,6}")
 
 
-def stamp_lines(page):
+def frame_corner(page):
+    """Правый нижний угол рамки листа по линиям чертежа, в координатах листа, как его видит человек.
+
+    Обычно рамка отстоит от края листа на 5 мм, но при печати «вписать в лист», с полями
+    принтера или со смещённой рамкой это не так — тогда штамп ищется от настоящего угла рамки.
+    Возвращает (x, y) или None, если рамка не найдена.
+    """
+    W, H = page.rect.width, page.rect.height
+    m = page.rotation_matrix
+    hor, ver = [], []
+    try:
+        drawings = page.get_drawings()
+    except Exception:
+        return None
+    for d in drawings:
+        for it in d["items"]:
+            if it[0] == "l":
+                segs = [(it[1] * m, it[2] * m)]
+            elif it[0] == "re":
+                r = pymupdf.Rect(it[1]) * m
+                segs = [(r.tl, r.tr), (r.bl, r.br), (r.tl, r.bl), (r.tr, r.br)]
+            else:
+                continue
+            for a, b in segs:
+                if abs(a.y - b.y) < 0.3 * MM and abs(a.x - b.x) > 150 * MM:
+                    hor.append((a.y, max(a.x, b.x)))
+                elif abs(a.x - b.x) < 0.3 * MM and abs(a.y - b.y) > 50 * MM:
+                    ver.append((a.x, max(a.y, b.y)))
+    edge = 1.5 * MM                      # линия по самому краю листа — обрез, а не рамка
+    hor = [h for h in hor if H * 0.7 < h[0] < H - edge and h[1] > W * 0.7]
+    ver = [v for v in ver if W * 0.7 < v[0] < W - edge and v[1] > H * 0.7]
+    if not hor or not ver:
+        return None
+    return max(v[0] for v in ver), max(h[0] for h in hor)
+
+
+def stamp_lines(page, corner=None):
     """Строки текста в зоне основной надписи (форма 3: 185×55 мм в правом нижнем углу рамки).
     Координаты — в мм от левого верхнего угла штампа, как лист видит человек."""
     W, H = page.rect.width, page.rect.height
-    x0, y0 = W - (5 + 185) * MM, H - (5 + 55) * MM
+    cx, cy = corner or frame_corner(page) or (W - 5 * MM, H - 5 * MM)
+    x0, y0 = cx - 185 * MM, cy - 55 * MM
     m = page.rotation_matrix
     out = []
     for b in page.get_text("dict")["blocks"]:
@@ -61,12 +98,14 @@ def stamp_lines(page):
 
 
 def parse_stamp(page):
-    lines = stamp_lines(page)
+    W, H = page.rect.width, page.rect.height
+    corner = frame_corner(page) or (W - 5 * MM, H - 5 * MM)
+    lines = stamp_lines(page, corner)
     st = {"found": bool(lines), "code": "", "project": "", "building": "", "title": "", "stage": "",
           "sheet": "", "sheets": "", "org": "", "roles": {}, "format": ""}
     # точка внутри штампа (над графой шифра) — в системе неповёрнутой страницы, для отметок в PDF
-    W, H = page.rect.width, page.rect.height
-    p = pymupdf.Point(W - (5 + 60) * MM, H - (5 + 50) * MM) * page.derotation_matrix
+    cx, cy = corner
+    p = pymupdf.Point(cx - 60 * MM, cy - 50 * MM) * page.derotation_matrix
     st["xy"] = (p.x, p.y)
     if not lines:
         return st
