@@ -35,7 +35,7 @@ UPLOADS = os.path.join(APPDIR, "Загруженные PDF")
 VERSION = "0.3"
 
 DEFAULT = {"files": [], "code": "", "name": "", "stamp": True, "sections": True, "callouts": True,
-           "tech": True, "ai": False, "scale": "Авто", "tol": 5, "pages": "", "outdir": "",
+           "tech": True, "spell": True, "ai": False, "scale": "Авто", "tol": 5, "pages": "", "outdir": "",
            "norms_dir": ov_norms.DEFAULT_DIR, "api_key": "", "model": "claude-opus-5-5", "effort": "high"}
 
 
@@ -280,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
             s = st.s
             scale = None if str(s["scale"]).startswith("Авто") else int(str(s["scale"]).split(":")[-1])
             opts = {"code": s["code"], "name": s["name"], "stamp": s["stamp"], "sections": s["sections"],
-                    "callouts": s["callouts"], "tech": s["tech"], "ai": s["ai"], "scale": scale, "tol": float(s["tol"]),
+                    "callouts": s["callouts"], "tech": s["tech"], "spell": s.get("spell", True), "ai": s["ai"], "scale": scale, "tol": float(s["tol"]),
                     "pages": s["pages"] or None, "outdir": s["outdir"] or None, "norms_dir": s["norms_dir"],
                     "api_key": s["api_key"], "model": s["model"], "effort": s["effort"]}
             st.job = {"running": True, "log": [], "result": None, "error": None}

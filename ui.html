@@ -162,6 +162,8 @@ padding:12px 18px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);tran
      <label class="sw"><input type="checkbox" id="callouts"><span></span></label></div>
    <div class="row icon"><div class="ic r">🔥</div><div class="grow">Технические по СП РК 4.02-101<div class="small">огнезадерживающие и дымовые клапаны, прокладка, класс и толщина воздуховодов</div></div>
      <label class="sw"><input type="checkbox" id="tech"><span></span></label></div>
+   <div class="row icon"><div class="ic b">Аб</div><div class="grow">Орфография<div class="small">опечатки в штампах, общих данных, спецификации и надписях; свой словарь — «Справочники\Словарь.txt»</div></div>
+     <label class="sw"><input type="checkbox" id="spell"><span></span></label></div>
    <div class="row icon"><div class="ic p">✦</div><div class="grow">Аудит ИИ через API<div class="small" id="ai-sub">Claude · нужен ключ API в настройках</div></div>
      <label class="sw"><input type="checkbox" id="ai"><span></span></label></div>
   </div>
@@ -312,7 +314,7 @@ $("#back").onclick=()=>show("s-check");
 function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+" МБ":Math.max(1,Math.round(b/1024))+" КБ"}
 function render(){
  $("#code").value=S.code||"";$("#name").value=S.name||"";
- ["stamp","sections","callouts","tech","ai"].forEach(k=>$("#"+k).checked=!!S[k]);
+ ["stamp","sections","callouts","tech","spell","ai"].forEach(k=>$("#"+k).checked=k==="spell"?S[k]!==false:!!S[k]);
  $("#scale").value=S.scale||"Авто";$("#tolv").textContent=S.tol;$("#pages").value=S.pages||"";
  $("#outdir-v").textContent=S.outdir||"рядом с PDF";
  $("#ai-sub").textContent=S.api_key_set?"Claude · ключ API задан":"Claude · нужен ключ API в настройках";
@@ -327,7 +329,7 @@ function render(){
 }
 async function save(patch){Object.assign(S,patch);try{S=(await api("/api/settings",patch)).settings}catch(e){toast(e.message)}}
 $("#code").onchange=e=>save({code:e.target.value});$("#name").onchange=e=>save({name:e.target.value});
-["stamp","sections","callouts","tech","ai"].forEach(k=>$("#"+k).onchange=e=>{
+["stamp","sections","callouts","tech","spell","ai"].forEach(k=>$("#"+k).onchange=e=>{
  if(k==="ai"&&e.target.checked&&!S.api_key_set){toast("Сначала укажите ключ API в настройках");}
  save({[k]:e.target.checked})});
 $("#scale").onchange=e=>save({scale:e.target.value});$("#pages").onchange=e=>save({pages:e.target.value});

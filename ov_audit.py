@@ -33,7 +33,7 @@ except ImportError:
 
 DEFAULT_OPTS = {
     "code": "", "name": "",
-    "sections": True, "stamp": True, "callouts": True, "tech": True, "ai": False,
+    "sections": True, "stamp": True, "callouts": True, "tech": True, "spell": True, "ai": False,
     "scale": None, "tol": 5.0, "pages": None, "outdir": None,
     "norms_dir": None, "api_key": "", "model": "claude-opus-5-5", "effort": "high",
 }
@@ -173,6 +173,10 @@ def run(files, opts=None, log=print, norms=None):
         findings += tech
     if o["sections"]:
         findings += section_findings(section_results, cfg)
+    if o.get("spell", True):
+        log("Проверяю орфографию…")
+        import ov_spell
+        findings += ov_spell.check(album, norms, log)
 
     # 6. аудит Claude через API
     ai = None

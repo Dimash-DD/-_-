@@ -24,8 +24,11 @@
 Нужен Python 3.10+ и библиотека PyMuPDF:
 
 ```
-python -m pip install pymupdf
+python -m pip install pymupdf pymorphy3
 ```
+
+`pymorphy3` — словарь русского языка для проверки орфографии; если его нет, программа
+попробует поставить его сама при первой проверке.
 
 Двойной щелчок по `Ordinem servare.pyw` — откроется окно программы.
 Для аудита через API Claude дополнительно: `python -m pip install anthropic` и ключ API в настройках.
@@ -42,6 +45,7 @@ python -m pip install pymupdf
 | `ov_tech.py` | технические проверки по СП РК 4.02-101 |
 | `ov_norms.py` | база нормативов: разбор PDF, Word и TXT по пунктам и поиск |
 | `ov_word.py` | чтение документов Word (.docx, .doc, .rtf) |
+| `ov_spell.py` | проверка орфографии (словарь pymorphy3 + слова из нормативов + `Справочники\Словарь.txt`) |
 | `ov_marks.py` | PDF с комментариями |
 | `ov_report.py` | сводный отчёт |
 | `ov_ai.py` | аудит Claude через API (по желанию) |
