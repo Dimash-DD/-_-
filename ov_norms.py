@@ -19,26 +19,66 @@ except ImportError:
 
 DEFAULT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "Нормативная документация для проверки")
 CACHE = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "ОВ-Проверка", "norms.json")
-CACHE_VER = 8
+CACHE_VER = 9
 
 RE_CODE = re.compile(r"(ГОСТ\s*Р?\s*\d+(?:\.\d+)*\s*[-—–]\s*\d{2,4}|"
                      r"С[ПН]\s*РК\s*\d+(?:\.\d+)*\s*[-—–]\s*\d+(?:\s*[-—–]\s*\d{4})?|"
-                     r"СП\s*\d+(?:\.\d+)+\s*[-—–]?\s*\d{4}|СНиП\s*[\d.\-]+)", re.I)
+                     r"СП\s*\d+(?:\.\d+)+(?:\s*[-—–]\s*\d{4})?|СНиП\s*(?:РК\s*)?\d[\d.\-]*\d)", re.I)
 # начало пункта: «6.2.14 Текст» в начале строки
 RE_CLAUSE = re.compile(r"^\s*(\d{1,2}(?:\.\d{1,3}){1,3})\.?\s+(?=[А-ЯЁA-Z«(])", re.M)
+# пункты приказов и правил РК: «15. Текст» (одноуровневая нумерация)
+RE_CLAUSE1 = re.compile(r"^\s*(\d{1,4})\.\s+(?=[А-ЯЁA-Z«(])", re.M)
 RE_APPENDIX = re.compile(r"^\s*Приложение\s+([А-ЯЁA-Z](?:-\d)?)\b", re.M)
 RE_WORD = re.compile(r"[а-яёa-z0-9]+", re.I)
 
 
+# собственные обозначения документов, которых нет в RE_CODE
+RE_OWN = re.compile(r"(?<![А-Яа-яЁёA-Za-z])(МДС\s*\d+-\d+(?:\.\d+)*|"
+                    r"(?:СТО|Р)\s*НП\s*[«\"“]?\s*АВОК\s*[»\"”]?\s*\d+(?:\.\d+)*\s*[-—–]\s*\d{4}|"
+                    r"МСН\s*\d+(?:\.\d+)*\s*[-—–]\s*\d+\s*[-—–]\s*\d{4})", re.I)
+RE_FOR = re.compile(r"^(Пособие|Методические\s+рекомендации|Рекомендации|Руководство|Комментарий)\s+к\s+", re.I)
+
+
+def _norm_code(code):
+    code = re.sub(r"\s*[-—–]\s*", "-", code)
+    code = re.sub(r"\s+", " ", code).strip().rstrip(".")
+    code = re.sub(r"\s*[«\"“]?\s*АВОК\s*[»\"”]?\s*", " «АВОК» ", code, flags=re.I).strip()
+    return code.upper().replace("СНИП", "СНиП")
+
+
 def doc_code(name, first_text):
-    """Обозначение документа: из имени файла, иначе с титульного листа."""
-    for src in (name, first_text):
-        m = RE_CODE.search(src.replace("\n", " "))
+    """Обозначение документа.
+
+    1. Обозначение в начале имени файла: «СП РК 4.02-101-2012 …», «ГОСТ 21.602-2016 …», «МДС 41-1.99 …».
+    2. «Пособие к СНиП 3.05.01-85», «Методические рекомендации к СП 7.13130.2013» — вместе с приставкой.
+    3. Собственное обозначение с титульного листа (СТО НП «АВОК» 1.05-2006 и т. п.); ссылки вида
+       «к СНиП 2.04.05-91» и обозначения из середины имени файла не берутся — это другие документы.
+    4. Иначе — имя файла.
+    """
+    stem = os.path.splitext(os.path.basename(name))[0]
+    st = re.sub(r"[_\s]+", " ", stem).strip()
+    st = re.sub(r"^SP(?=\s|\d)", "СП", st, flags=re.I)
+    st = re.sub(r"^SN(?=\s|\d)", "СН", st, flags=re.I)
+    st = re.sub(r"^(СП|СН)\s+RK(?=\s)", r"\1 РК", st, flags=re.I)
+    st = re.sub(r"^(СП|СН|СНиП)\s+(?:РФ|RF)\s+", r"\1 ", st, flags=re.I)
+    for rx in (RE_CODE, RE_OWN):
+        m = rx.match(st)
         if m:
-            code = re.sub(r"\s*[-—–]\s*", "-", m.group(1))
-            code = re.sub(r"\s+", " ", code).strip()
-            return code.replace("ГОСТ ", "ГОСТ ").upper().replace("СНИП", "СНиП")
-    return os.path.splitext(name)[0]
+            return _norm_code(m.group(1))
+    m = RE_FOR.match(st)
+    if m:
+        rest = st[m.end():]
+        c = RE_CODE.match(rest) or RE_OWN.match(rest)
+        if c:
+            return m.group(0).strip()[:1].upper() + m.group(0).strip()[1:].lower() + " " + _norm_code(c.group(1))
+    text = (first_text or "").replace("\n", " ")
+    for rx in (RE_OWN, RE_CODE):
+        for m in rx.finditer(text):
+            before = text[max(0, m.start() - 4):m.start()]
+            if re.search(r"(?<![А-Яа-яЁё])к\s*$", before, re.I):        # «к СНиП …» — ссылка, не своё
+                continue
+            return _norm_code(m.group(1))
+    return stem
 
 
 def read_pages(path):
@@ -65,6 +105,10 @@ def split_clauses(pages):
         full += clean(t) + "\n"
     for m in RE_CLAUSE.finditer(full):
         marks.append((m.start(), m.group(1)))
+    if len(marks) < 20:                     # нет пунктов вида 6.2.14 — приказ или правила с нумерацией «15.»
+        single = [(m.start(), m.group(1)) for m in RE_CLAUSE1.finditer(full)]
+        if len(single) >= 50:
+            marks = single
     for m in RE_APPENDIX.finditer(full):
         marks.append((m.start(), "Прил. " + m.group(1)))
     marks.sort()
@@ -272,14 +316,26 @@ def title_text(path, fallback=""):
 
 
 def doc_title(first_text):
-    """Наименование документа с титульного листа (строки заглавными буквами)."""
+    """Наименование документа с титульного листа."""
+    text = first_text or ""
+    # выгрузки NormaCS / «Параграф»: «Название рус.: …»
+    m = re.search(r"Название\s+рус\.?:\s*(.+?)(?:\n\s*\n|\n\s*Краткое содержание|\n\s*[А-ЯЁ][а-яё ]+:|$)", text, re.S)
+    if m:
+        return " ".join(m.group(1).split())[:160]
+    # приказы РК (adilet.zan.kz): первая строка «Об утверждении …» до «Приказ …»
+    m = re.match(r"\s*(Об\s+утверждении\s.+?)(?=\s*Приказ\b|\s*Постановлени|\n\s*\n)", text, re.S)
+    if m:
+        return " ".join(m.group(1).split())[:160]
     skip = re.compile(r"СОВЕТ|МЕЖГОСУДАРСТВ|СТАНДАРТ$|ИЗДАНИЕ|КОМИТЕТ|РЕСПУБЛИК|ГОСУДАРСТВ|СВОД ПРАВИЛ|"
                       r"СТРОИТЕЛЬНЫЕ НОРМЫ|НОРМЫ РК$|ОФИЦИАЛЬНОЕ|^СН |ФЕДЕРАЛЬН|АГЕНТСТВ|МЕТРОЛОГ|РЕГУЛИРОВАНИ|"
-                      r"НАЦИОНАЛЬН|ФЕДЕРАЦИ|РОССИЙСК|ЕРЕЖЕЛЕР|ҚАЗАҚСТАН|ҚҰРЫЛЫС|ЖЫЛЫТУ|КОНДИЦИОНЕРЛЕУ|СОДЕРЖАНИЕ|^ГОСТ|^СП |^ҚР", re.I)
+                      r"НАЦИОНАЛЬН|ФЕДЕРАЦИ|РОССИЙСК|МИНИСТЕРСТВ|ОБОРОН|ЧРЕЗВЫЧАЙН|УЧРЕЖДЕНИ|ИНСТИТУТ|"
+                      r"ПАРТНЕРСТВ|ЛИКВИДАЦИ|БЕДСТВИ|ЗНАК ПОЧЕТА|НАУЧНО-ИССЛЕДОВАТЕЛЬСК|МЕТОДИЧЕСКАЯ ДОКУМЕНТАЦИЯ|САНТЕХНИИПРОЕКТ|СОГЛАСОВАН|УТВЕРЖД|ПРИКАЗЫВАЮ|"
+                      r"^Р НП|^СТО |^РЕКОМЕНДАЦИИ АВОК$|^СТАНДАРТ АВОК$|^МОСКВА|"
+                      r"ЕРЕЖЕЛЕР|ҚАЗАҚСТАН|ҚҰРЫЛЫС|ЖЫЛЫТУ|КОНДИЦИОНЕРЛЕУ|СОДЕРЖАНИЕ|^ГОСТ|^СП |^ҚР", re.I)
     good = lambda l: (len(l) > 6 and l.upper() == l and re.search("[А-ЯЁ]{4}", l) and not skip.search(l)
                       and "..." not in l and not re.match(r"ВВЕДЕНИЕ|ПРЕДИСЛОВИЕ|\d", l))
     title = []
-    for l in (x.strip() for x in first_text.splitlines()):
+    for l in (x.strip() for x in text.splitlines()):
         if not l and not title:
             continue
         if good(l):
