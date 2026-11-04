@@ -36,7 +36,7 @@ VERSION = "0.3"
 
 DEFAULT = {"files": [], "code": "", "name": "", "stamp": True, "sections": True, "callouts": True,
            "tech": True, "spell": True, "ai": False, "scale": "Авто", "tol": 5, "pages": "", "outdir": "",
-           "norms_dir": ov_norms.DEFAULT_DIR, "pdf_save_dir": "", "recent_dirs": [], "api_key": "", "model": "claude-opus-5-5", "effort": "high"}
+           "norms_dir": ov_norms.DEFAULT_DIR, "recent_dirs": [], "api_key": "", "model": "claude-opus-5-5", "effort": "high"}
 
 
 class State:
@@ -160,24 +160,6 @@ def pick_original(name, initial=None):
         return filedialog.askopenfilename(
             title=f"Где лежит «{name}»? Укажите этот файл — отчёты сохранятся рядом с ним",
             initialfile=name, initialdir=initial or None, filetypes=[("PDF", "*.pdf")], parent=root) or ""
-    finally:
-        root.destroy()
-
-
-def pick_save(initial_dir=None, name="", many=False):
-    """Диалог «Сохранить как» для PDF (или выбор папки, если файлов несколько)."""
-    import tkinter as tk
-    from tkinter import filedialog
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    try:
-        if many:
-            return filedialog.askdirectory(title="Куда сохранить PDF с комментариями",
-                                           initialdir=initial_dir or None, parent=root) or ""
-        return filedialog.asksaveasfilename(title="Сохранить PDF с комментариями", initialfile=name,
-                                            initialdir=initial_dir or None, defaultextension=".pdf",
-                                            filetypes=[("PDF", "*.pdf")], parent=root) or ""
     finally:
         root.destroy()
 
@@ -386,41 +368,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "Сначала выполните проверку."})
             import ov_audit as A
             return self._send(200, A.reload_claude(res))
-
-        if u.path == "/api/save_pdf":
-            res = st.job.get("result") or {}
-            src = [p for p in res.get("comment_files", {}).values() if p and os.path.exists(p)]
-            if not src:
-                return self._send(404, {"error": "PDF с комментариями ещё нет — выполните проверку."})
-            init = st.s.get("pdf_save_dir") or os.path.dirname(src[0])
-            if len(src) == 1:
-                dst = pick_save(init, os.path.basename(src[0]))
-                if not dst:
-                    return self._send(200, {"path": ""})           # отменено
-                if not dst.lower().endswith(".pdf"):
-                    dst += ".pdf"
-                pairs = [(src[0], dst)]
-            else:
-                folder = pick_save(init, many=True)
-                if not folder:
-                    return self._send(200, {"path": ""})
-                pairs = [(p, os.path.join(folder, os.path.basename(p))) for p in src]
-            try:
-                for a, b in pairs:
-                    if os.path.abspath(a) != os.path.abspath(b):
-                        shutil.copy2(a, b)
-            except OSError as e:
-                return self._send(500, {"error": f"Не удалось сохранить: {e}. Файл открыт в другой программе?"})
-            with st.lock:
-                st.s["pdf_save_dir"] = os.path.dirname(pairs[0][1])
-                st.save()
-            if data.get("open", True):
-                try:
-                    os.startfile(pairs[0][1])
-                except OSError:
-                    pass
-            return self._send(200, {"path": pairs[0][1] if len(pairs) == 1 else os.path.dirname(pairs[0][1]),
-                                    "count": len(pairs)})
 
         if u.path == "/api/open":
             res = st.job.get("result")
