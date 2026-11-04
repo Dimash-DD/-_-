@@ -41,6 +41,12 @@ RE_OWN = re.compile(r"(?<![А-Яа-яЁёA-Za-z])(МДС\s*\d+-\d+(?:\.\d+)*|"
 RE_FOR = re.compile(r"^(Пособие|Методические\s+рекомендации|Рекомендации|Руководство|Комментарий)\s+к\s+", re.I)
 
 
+def _latin_to_cyr(text):
+    """Латинские буквы, набранные вместо русских в обозначениях («CП РК», «CНиП»)."""
+    return re.sub(r"(?<![A-Za-z])[CС][ПH](?=\s*(?:РК|иП|\d))",
+                  lambda m: "С" + ("П" if m.group(0)[1] == "П" else "Н"), text)
+
+
 def _norm_code(code):
     code = re.sub(r"\s*[-—–]\s*", "-", code)
     code = re.sub(r"\s+", " ", code).strip().rstrip(".")
@@ -63,17 +69,25 @@ def doc_code(name, first_text):
     st = re.sub(r"^SN(?=\s|\d)", "СН", st, flags=re.I)
     st = re.sub(r"^(СП|СН)\s+RK(?=\s)", r"\1 РК", st, flags=re.I)
     st = re.sub(r"^(СП|СН|СНиП)\s+(?:РФ|RF)\s+", r"\1 ", st, flags=re.I)
+    # «СП_РК_2_04_107_2022» → «СП РК 2.04-107-2022»
+    st = re.sub(r"^(СП|СН)\s+РК\s+(\d)\s+(\d{2})\s+(\d{2,3})\s+(\d{4})(?=\s|$)", r"\1 РК \2.\3-\4-\5", st, flags=re.I)
+    st = re.sub(r"^(СП|СН)\s+РК\s+(\d\.\d{2})\s+(\d{2,3})\s+(\d{4})(?=\s|$)", r"\1 РК \2-\3-\4", st, flags=re.I)
+    text = _latin_to_cyr((first_text or "")[:1500]).replace("\n", " ")
     for rx in (RE_CODE, RE_OWN):
         m = rx.match(st)
         if m:
-            return _norm_code(m.group(1))
+            code = _norm_code(m.group(1))
+            if re.fullmatch(r"СП \d+\.\d+", code):          # «СП 60.13330» без года — год с титульного листа
+                y = re.search(re.escape(code) + r"\s*[.-]\s*(\d{4})", text)
+                if y:
+                    code += "." + y.group(1)
+            return code
     m = RE_FOR.match(st)
     if m:
         rest = st[m.end():]
         c = RE_CODE.match(rest) or RE_OWN.match(rest)
         if c:
             return m.group(0).strip()[:1].upper() + m.group(0).strip()[1:].lower() + " " + _norm_code(c.group(1))
-    text = (first_text or "")[:1500].replace("\n", " ")       # только титульная часть
     if re.search(r"Об\s+утверждении|ПРИКАЗЫВАЮ", text) or re.match(r"(Об утверждении|Приказ|Санитарн|Правила|Закон)", st, re.I):
         return stem                     # приказ РК: обозначения в тексте — ссылки на другие документы
     for rx in (RE_OWN, RE_CODE):
@@ -214,7 +228,9 @@ class Norms:
                 else:
                     clauses, full = split_clauses(pages)
                     first = " ".join(pages[:2])
-                    d = {"file": name, "code": doc_code(os.path.basename(name), first), "title": doc_title(title_text(path, first)),
+                    code = doc_code(os.path.basename(name), first)
+                    title = refine_title(doc_title(title_text(path, first), code), name, code)
+                    d = {"file": name, "code": code, "title": title,
                          "pages": len(pages), "clauses": clauses, "text": full}
                 cache[key] = d
             self.docs.append(d)
@@ -324,8 +340,65 @@ def title_text(path, fallback=""):
         return fallback
 
 
-def doc_title(first_text):
-    """Наименование документа с титульного листа."""
+def file_desc(name, code):
+    """Описание из имени файла после обозначения: «СП_РК_3.02-109-2012_Многофункциональные здания» →
+    «Многофункциональные здания». Пусто, если обозначение не в начале имени."""
+    stem = re.sub(r"[_\s]+", " ", os.path.splitext(os.path.basename(name))[0]).strip()
+    digits = re.findall(r"\d+", code)
+    if not digits or not re.match(r"(СП|СН|СНиП|МСН|ГОСТ|SP|SN|МДС)", stem, re.I):
+        return ""
+    pos = 0
+    for dg in digits:                       # пропускаем все числа обозначения по порядку
+        m = re.compile(r"(?<!\d)" + dg + r"(?!\d)").search(stem, pos)
+        if not m:
+            return ""
+        pos = m.end()
+    desc = re.sub(r"^[\s.*\-–—_]+", "", stem[pos:])
+    desc = re.sub(r"^Свод правил\.?\s*", "", desc, flags=re.I).strip()
+    return desc if len(desc) >= 6 else ""
+
+
+_LAT = str.maketrans("ABCEHKMOPTXYaceopxy", "АВСЕНКМОРТХУасеорху")
+_KAZ_SUFFIX = re.compile(r"(СЫ|СІ|ЛАРЫ|ЛЕРІ|ДАРЫ|ДЕРІ|ТАРЫ|ТЕРІ|ДЕР|ДАР|ТАР|ТЕР|ЛАР|ЛЕР|НЫҢ|НІҢ|ДАРЫН|ДЕРІН|ЛАРЫН|ЛЕРІН|ЛАУ|ЛЕУ)$")
+
+
+def refine_title(title, name, code):
+    """Сверка наименования с описанием в имени файла.
+
+    Если ни одно слово описания не встречается в наименовании (или слова слиплись без пробелов) —
+    берётся описание из имени файла. Если перед совпавшими словами стоит казахский текст —
+    он отрезается.
+    """
+    desc = file_desc(name, code)
+    if not desc:
+        return title
+    dwords = [w.upper().translate(_LAT) for w in re.findall(r"[А-Яа-яЁё]{4,}", desc)]
+    if not dwords:
+        return title
+    if not title or any(len(w) > 22 for w in re.split(r"[\s\-–—]+", title)):
+        return desc
+    def match(w):
+        w = w.upper().translate(_LAT)
+        for dw in dwords:
+            if w[:5] == dw[:5] and (len(w) <= len(dw) + 1 or not _KAZ_SUFFIX.search(w)):
+                return True
+        return False
+    toks = list(re.finditer(r"[^\s]+", title))
+    hits = [t for t in toks if match(re.sub(r"[^А-Яа-яЁёA-Za-z]", "", t.group(0)))]
+    if not hits:
+        return desc
+    i = hits[0].start()
+    prefix = re.findall(r"[А-ЯЁA-Z]+", title[:i].upper())
+    if i > 0 and any(_KAZ_SUFFIX.search(w) for w in prefix):   # перед русским наименованием — казахское
+        return title[i:]
+    return title
+
+
+KAZ = re.compile(r"[ӘҒҚҢӨҰҮҺІӚҤҦәғқңөұүһіӛҥҧ]")     # казахские буквы: строка на казахском
+
+
+def doc_title(first_text, code=""):
+    """Наименование документа с титульного листа (русское, без казахского дубля)."""
     text = first_text or ""
     # выгрузки NormaCS / «Параграф»: «Название рус.: …»
     m = re.search(r"Название\s+рус\.?:\s*(.+?)(?:\n\s*\n|\n\s*Краткое содержание|\n\s*[А-ЯЁ][а-яё ]+:|$)", text, re.S)
@@ -338,11 +411,12 @@ def doc_title(first_text):
         return " ".join(m.group(1).split())[:160]
     skip = re.compile(r"СОВЕТ|МЕЖГОСУДАРСТВ|СТАНДАРТ$|ИЗДАНИЕ|КОМИТЕТ|РЕСПУБЛИК|ГОСУДАРСТВ|СВОД ПРАВИЛ|"
                       r"СТРОИТЕЛЬНЫЕ НОРМЫ|НОРМЫ РК$|ОФИЦИАЛЬНОЕ|^СН |ФЕДЕРАЛЬН|АГЕНТСТВ|МЕТРОЛОГ|РЕГУЛИРОВАНИ|"
-                      r"НАЦИОНАЛЬН|ФЕДЕРАЦИ|РОССИЙСК|МИНИСТЕРСТВ|ОБОРОН|ЧРЕЗВЫЧАЙН|УЧРЕЖДЕНИ|ИНСТИТУТ|"
+                      r"НАЦИОНАЛЬН|ФЕДЕРАЦИ|РОССИЙСК|МИНИСТЕРСТВ|ОБОРОН|ЧРЕЗВЫЧАЙН|БЮДЖЕТНОЕ УЧРЕЖДЕНИЕ|ИНСТИТУТ|ЖИЛИЩНО-КОММУНАЛЬН|ОНЛАЙН|КАЛЬКУЛЯТОР|WWW\.|"
                       r"ПАРТНЕРСТВ|ЛИКВИДАЦИ|БЕДСТВИ|ЗНАК ПОЧЕТА|НАУЧНО-ИССЛЕДОВАТЕЛЬСК|МЕТОДИЧЕСКАЯ ДОКУМЕНТАЦИЯ|САНТЕХНИИПРОЕКТ|СОГЛАСОВАН|УТВЕРЖД|ПРИКАЗЫВАЮ|"
                       r"^Р НП|^СТО |^РЕКОМЕНДАЦИИ АВОК$|^СТАНДАРТ АВОК$|^МОСКВА|"
                       r"ЕРЕЖЕЛЕР|ҚАЗАҚСТАН|ҚҰРЫЛЫС|ЖЫЛЫТУ|КОНДИЦИОНЕРЛЕУ|СОДЕРЖАНИЕ|^ГОСТ|^СП |^ҚР", re.I)
     good = lambda l: (len(l) > 6 and l.upper() == l and re.search("[А-ЯЁ]{4}", l) and not skip.search(l)
+                      and not KAZ.search(l)
                       and "..." not in l and not re.match(r"ВВЕДЕНИЕ|ПРЕДИСЛОВИЕ|\d", l))
     title = []
     for l in (x.strip() for x in text.splitlines()):
@@ -352,6 +426,18 @@ def doc_title(first_text):
             title.append(l)                 # заглавие идёт подряд на нескольких строках
         elif title:
             break
+    if not title and code:                  # заглавие строчными буквами сразу под обозначением
+        compact = lambda x: re.sub(r"[\s*—–-]", "", x).upper()
+        lines = [x.strip() for x in text.splitlines()]
+        for i, l in enumerate(lines[:40]):
+            if l and compact(l) == compact(code):
+                for nxt in lines[i + 1:i + 4]:
+                    if not nxt or nxt.startswith("(") or KAZ.search(nxt) or re.match(
+                            r"(Содержание|Предисловие|Введение|Издание|ОКС|Дата|Москва|Астана|\d)", nxt, re.I):
+                        break
+                    title.append(nxt if not title or title[-1].endswith((".", ",", ":")) else nxt)
+                break
+        return ". ".join(t.rstrip(".") for t in title)[:160]
     return " ".join(title)[:160]
 
 
