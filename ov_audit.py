@@ -45,6 +45,12 @@ def base_name(project, files):
     return re.sub(r"[\\/:*?\"<>|]+", "_", project["code"] or os.path.splitext(os.path.basename(files[0]))[0])
 
 
+def report_dir(pdf, base_dir=None):
+    """Папка отчётов: рядом с чертежом (или в выбранной папке результатов) — «<имя чертежа>_отчет»."""
+    stem = os.path.splitext(os.path.basename(pdf))[0]
+    return os.path.join(base_dir or os.path.dirname(os.path.abspath(pdf)), f"{stem}_отчет")
+
+
 def claude_paths(outdir, base):
     return (os.path.join(outdir, f"{base}_ДАННЫЕ_ДЛЯ_CLAUDE.txt"),
             os.path.join(outdir, f"{base}_АУДИТ_CLAUDE.json"))
@@ -198,7 +204,7 @@ def run(files, opts=None, log=print, norms=None):
         f["n"] = k
 
     # 8. выходные файлы
-    outdir = o["outdir"] or os.path.dirname(files[0])
+    outdir = report_dir(files[0], o["outdir"])
     os.makedirs(outdir, exist_ok=True)
     base = base_name(project, files)
     log("Ставлю комментарии в PDF…")

@@ -36,7 +36,7 @@ VERSION = "0.3"
 
 DEFAULT = {"files": [], "code": "", "name": "", "stamp": True, "sections": True, "callouts": True,
            "tech": True, "spell": True, "ai": False, "scale": "Авто", "tol": 5, "pages": "", "outdir": "",
-           "norms_dir": ov_norms.DEFAULT_DIR, "pdf_save_dir": "", "api_key": "", "model": "claude-opus-5-5", "effort": "high"}
+           "norms_dir": ov_norms.DEFAULT_DIR, "pdf_save_dir": "", "recent_dirs": [], "api_key": "", "model": "claude-opus-5-5", "effort": "high"}
 
 
 class State:
@@ -102,6 +102,64 @@ def pick_files(kind="files", initial=None):
         r = filedialog.askopenfilenames(title="Выберите PDF", filetypes=[("PDF", "*.pdf")],
                                         initialdir=initial or None, parent=root)
         return list(r)
+    finally:
+        root.destroy()
+
+
+SKIP_DIRS = {"appdata", "$recycle.bin", "node_modules", ".git", "__pycache__", "windows", "program files",
+             "program files (x86)", "programdata"}
+
+
+def locate_original(name, size, mtime_ms=None, roots=(), budget=6.0):
+    """Ищет на компьютере оригинал перетащенного файла: то же имя и размер (и время изменения,
+    если браузер его сообщил). Окно программы — страница браузера, и путь к файлу браузер не отдаёт."""
+    home = os.path.expanduser("~")
+    cand = [r for r in roots if r]
+    for sub in ("Desktop", "Рабочий стол", "Documents", "Документы", "Downloads", "Загрузки"):
+        cand.append(os.path.join(home, sub))
+    try:
+        cand += [os.path.join(home, d) for d in os.listdir(home) if d.lower().startswith("onedrive")]
+    except OSError:
+        pass
+    cand.append(home)
+    seen, found, t0 = set(), [], time.time()
+    queue = [(os.path.normcase(os.path.abspath(r)), 0) for r in cand if os.path.isdir(r)]
+    while queue and time.time() - t0 < budget:
+        d, depth = queue.pop(0)
+        if d in seen:
+            continue
+        seen.add(d)
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_file(follow_symlinks=False):
+                            if e.name.lower() == name.lower() and e.stat().st_size == size:
+                                found.append(e.path)
+                        elif e.is_dir(follow_symlinks=False) and depth < 6 and not e.name.startswith((".", "~")) \
+                                and e.name.lower() not in SKIP_DIRS and os.path.normcase(e.path) != os.path.normcase(UPLOADS):
+                            queue.append((os.path.normcase(e.path), depth + 1))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    if mtime_ms and len(found) > 1:
+        exact = [p for p in found if abs(os.path.getmtime(p) * 1000 - mtime_ms) < 3000]
+        found = exact or found
+    return found[0] if len(found) == 1 else None
+
+
+def pick_original(name, initial=None):
+    """Если оригинал не нашёлся сам — просим показать его в обычном окне выбора файла."""
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        return filedialog.askopenfilename(
+            title=f"Где лежит «{name}»? Укажите этот файл — отчёты сохранятся рядом с ним",
+            initialfile=name, initialdir=initial or None, filetypes=[("PDF", "*.pdf")], parent=root) or ""
     finally:
         root.destroy()
 
@@ -246,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
                 f = os.path.abspath(f)
                 if f not in st.s["files"]:
                     st.s["files"].append(f)
+                d = os.path.dirname(f)
+                st.s["recent_dirs"] = ([d] + [x for x in st.s.get("recent_dirs", []) if x != d])[:10]
             st.save()
             return self._send(200, {"settings": st.public()})
 
@@ -263,10 +323,25 @@ class Handler(BaseHTTPRequestHandler):
             name = os.path.basename(urllib.parse.unquote(self.headers.get("X-Name", "file.pdf")))
             if not name.lower().endswith(".pdf"):
                 return self._send(400, {"error": "только PDF"})
-            os.makedirs(UPLOADS, exist_ok=True)
-            path = os.path.join(UPLOADS, name)
-            with open(path, "wb") as fo:
-                fo.write(raw)
+            try:
+                mtime = float(self.headers.get("X-Mtime") or 0) or None
+            except ValueError:
+                mtime = None
+            recent = [os.path.dirname(p) for p in st.s["files"] if not p.startswith(UPLOADS)]
+            recent += st.s.get("recent_dirs", [])
+            path = locate_original(name, len(raw), mtime, recent)
+            if not path:
+                path = pick_original(name, recent[0] if recent else None)
+                if path and os.path.basename(path).lower() != name.lower():
+                    path = ""                                       # выбрали другой файл — не подменяем
+            if not path:                                            # не нашли и не показали — работаем с копией
+                os.makedirs(UPLOADS, exist_ok=True)
+                path = os.path.join(UPLOADS, name)
+                with open(path, "wb") as fo:
+                    fo.write(raw)
+            else:
+                dirs = [os.path.dirname(path)] + [d for d in st.s.get("recent_dirs", []) if d != os.path.dirname(path)]
+                st.s["recent_dirs"] = dirs[:10]
             if path not in st.s["files"]:
                 st.s["files"].append(path)
             st.save()
