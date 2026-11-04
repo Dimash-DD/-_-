@@ -109,12 +109,13 @@ def doc_kind(file, code=""):
     name = re.sub(r"[_\s]+", " ", name).strip()
     name = re.sub(r"^SP(?=\s|\d)", "СП", name, flags=re.I)
     name = re.sub(r"^SN(?=\s|\d)", "СН", name, flags=re.I)
-    if re.search(r"санпин|санитарн", name, re.I):
-        return "sanpin"
-    if re.match(r"(СП|СН|СНиП|МСН)(?![А-Яа-яЁё])", name, re.I) and not re.match(r"сниж|снят", name, re.I):
+    # сначала обозначение в начале имени: «СН РК … санитарно-технические системы» — это СН, а не СанПиН
+    if re.match(r"(СП|СН|СНиП|МСН)(?![А-Яа-яЁё])", name, re.I):
         return "sp"
     if re.match(r"ГОСТ(?![А-Яа-яЁё])|ГОСТР", name, re.I):
         return "gost"
+    if re.match(r"санпин|санитарн", name, re.I) or re.search(r"(?<![А-Яа-яЁё])СанПиН", name, re.I):
+        return "sanpin"
     return "other"
 
 
