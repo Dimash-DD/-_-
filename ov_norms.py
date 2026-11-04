@@ -3,7 +3,7 @@
 """
 Ordinem servare: база нормативных документов.
 
-Читает PDF / TXT из папки нормативов, режет текст на пункты (5.3, 6.2.14 ...)
+Читает PDF / TXT из папки нормативов и всех вложенных папок, режет текст на пункты (5.3, 6.2.14 ...)
 и даёт поиск по ним. Разобранный текст кэшируется в %APPDATA%\\ОВ-Проверка\\norms.json,
 поэтому повторный запуск быстрый; при замене файла кэш обновляется сам.
 """
@@ -79,6 +79,22 @@ def split_clauses(pages):
     return out, full
 
 
+def list_files(folder):
+    """PDF и TXT в папке и во всех вложенных папках; пути относительно folder, через «/».
+
+    Пропускаются скрытые и служебные папки (.git, __pycache__ и т. п.) и временные
+    файлы Office «~$…».
+    """
+    out = []
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if not d.startswith((".", "__", "~")))
+        for n in files:
+            if n.lower().endswith((".pdf", ".txt")) and not n.startswith(("~$", ".")):
+                rel = os.path.relpath(os.path.join(root, n), folder)
+                out.append(rel.replace(os.sep, "/"))
+    return sorted(out, key=lambda r: (r.count("/"), r.lower()))
+
+
 def stems(text):
     return {w[:6] for w in RE_WORD.findall(text.lower()) if len(w) > 2}
 
@@ -101,10 +117,13 @@ class Norms:
         self.docs = []
         if not os.path.isdir(self.folder):
             return self.docs
-        names = sorted(n for n in os.listdir(self.folder) if n.lower().endswith((".pdf", ".txt")))
+        names = list_files(self.folder)
         for k, name in enumerate(names):
             path = os.path.join(self.folder, name)
-            st = os.stat(path)
+            try:
+                st = os.stat(path)
+            except OSError:                 # файл удалён или недоступен во время чтения
+                continue
             key = f"{name}|{st.st_size}|{int(st.st_mtime)}"
             if progress:
                 progress(f"Норматив {k + 1}/{len(names)}: {name}")
@@ -113,12 +132,12 @@ class Norms:
                 try:
                     pages = read_pages(path)
                 except Exception as e:      # битый файл не должен ронять программу
-                    d = {"file": name, "code": name, "title": "", "pages": 0, "clauses": [],
+                    d = {"file": name, "code": os.path.basename(name), "title": "", "pages": 0, "clauses": [],
                          "text": "", "error": str(e)}
                 else:
                     clauses, full = split_clauses(pages)
                     first = " ".join(pages[:2])
-                    d = {"file": name, "code": doc_code(name, first), "title": doc_title(title_text(path, first)),
+                    d = {"file": name, "code": doc_code(os.path.basename(name), first), "title": doc_title(title_text(path, first)),
                          "pages": len(pages), "clauses": clauses, "text": full}
                 cache[key] = d
             self.docs.append(d)
