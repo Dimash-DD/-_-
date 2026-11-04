@@ -37,43 +37,36 @@ GOST101 = "ГОСТ 21.101"
 LABEL_WORDS = re.compile(r"^(Изм\.?|Кол\.?\s*уч\.?|Лист|№\s*док\.?|Подп\.?|Дата|Стадия|Листов|Формат.*|"
                          r"Инв\.?.*|Взам\.?.*|Согласовано|Подп\.? и дата)$", re.I)
 ROLE_RE = re.compile(r"^(Разраб|Разработ|Пров|Провер|Н\.?\s*контр|Нач\.?|ГИП|ГАП|Утв|Рук|Исполн|Т\.?\s*контр)", re.I)
+ROLE_SPLIT = re.compile(r"^((?:Разраб\w*|Пров\w*|Н\.?\s*контр\w*|Нач\.?(?:\s*отд\.?)?|ГИП|ГАП|Утв\w*|Рук\w*|"
+                        r"Исполн\w*|Т\.?\s*контр\w*)\.?)\s+(\S.*)$", re.I)
 CODE_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё.]+(?:[-–][0-9A-Za-zА-Яа-яЁё.]+){1,6}")
 
 
 def frame_corner(page):
-    """Правый нижний угол рамки листа по линиям чертежа, в координатах листа, как его видит человек.
+    """Правый нижний угол рамки (= угол основной надписи) в координатах листа, как его видит человек.
 
     Обычно рамка отстоит от края листа на 5 мм, но при печати «вписать в лист», с полями
-    принтера или со смещённой рамкой это не так — тогда штамп ищется от настоящего угла рамки.
-    Возвращает (x, y) или None, если рамка не найдена.
+    принтера или со смещённой рамкой это не так. Угол находится по подписям граф штампа
+    «Стадия» и «Листов» (форма 3 ГОСТ 21.101: их центры в 42,5 и 10 мм левее и 27,5 мм выше угла).
+    Возвращает (x, y) или None, если подписей нет — тогда используется правило 5 мм.
     """
     W, H = page.rect.width, page.rect.height
     m = page.rotation_matrix
-    hor, ver = [], []
-    try:
-        drawings = page.get_drawings()
-    except Exception:
+    cand = {"Стадия": [], "Листов": []}
+    for b in page.get_text("dict")["blocks"]:
+        for ln in b.get("lines", []):
+            t = "".join(sp["text"] for sp in ln["spans"]).strip()
+            if t in cand:
+                r = pymupdf.Rect(ln["bbox"]) * m
+                if r.x0 > W * 0.5 and r.y0 > H * 0.5:          # только правая нижняя четверть листа
+                    cand[t].append(((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2))
+    pts = [(x + 42.5 * MM, y + 27.5 * MM) for x, y in cand["Стадия"]]
+    pts += [(x + 10 * MM, y + 27.5 * MM) for x, y in cand["Листов"]]
+    pts = [(x, y) for x, y in pts if x < W + 3 * MM and y < H + 3 * MM]
+    if not pts:
         return None
-    for d in drawings:
-        for it in d["items"]:
-            if it[0] == "l":
-                segs = [(it[1] * m, it[2] * m)]
-            elif it[0] == "re":
-                r = pymupdf.Rect(it[1]) * m
-                segs = [(r.tl, r.tr), (r.bl, r.br), (r.tl, r.bl), (r.tr, r.br)]
-            else:
-                continue
-            for a, b in segs:
-                if abs(a.y - b.y) < 0.3 * MM and abs(a.x - b.x) > 150 * MM:
-                    hor.append((a.y, max(a.x, b.x)))
-                elif abs(a.x - b.x) < 0.3 * MM and abs(a.y - b.y) > 50 * MM:
-                    ver.append((a.x, max(a.y, b.y)))
-    edge = 1.5 * MM                      # линия по самому краю листа — обрез, а не рамка
-    hor = [h for h in hor if H * 0.7 < h[0] < H - edge and h[1] > W * 0.7]
-    ver = [v for v in ver if W * 0.7 < v[0] < W - edge and v[1] > H * 0.7]
-    if not hor or not ver:
-        return None
-    return max(v[0] for v in ver), max(h[0] for h in hor)
+    x, y = max(pts, key=lambda q: q[0] + q[1])       # самый правый нижний штамп
+    return min(x, W), min(y, H)
 
 
 def stamp_lines(page, corner=None):
@@ -97,12 +90,64 @@ def stamp_lines(page, corner=None):
     return out
 
 
+def form6_corner(page):
+    """Угол короткой основной надписи (форма 6 ГОСТ 21.101, высота 15 мм — последующие листы
+    спецификации и текстовых документов). Ищется по подписи графы «Лист» у правого края
+    (центр в 5 мм левее и 11,5 мм выше угла), иначе по «Изм.» (180 мм левее, 2,5 мм выше).
+    None, если такой надписи нет."""
+    W, H = page.rect.width, page.rect.height
+    m = page.rotation_matrix
+    pts = []
+    for b in page.get_text("dict")["blocks"]:
+        for ln in b.get("lines", []):
+            t = "".join(sp["text"] for sp in ln["spans"]).strip()
+            if t not in ("Лист", "Изм.", "Изм"):
+                continue
+            r = pymupdf.Rect(ln["bbox"]) * m
+            cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+            x, y = (cx + 5 * MM, cy + 11.5 * MM) if t == "Лист" else (cx + 180 * MM, cy + 2.5 * MM)
+            if W - 15 * MM < x < W + 3 * MM and H - 15 * MM < y < H + 3 * MM:
+                pts.append((min(x, W), min(y, H), t == "Лист"))
+    if not pts:
+        return None
+    best = max(pts, key=lambda q: (q[2], q[0] + q[1]))    # подпись «Лист» надёжнее
+    return best[0], best[1]
+
+
+def parse_form6(page, corner, st):
+    """Шифр и номер листа из короткой основной надписи (форма 6)."""
+    x0, y0 = corner[0] - 185 * MM, corner[1] - 15 * MM
+    m = page.rotation_matrix
+    for b in page.get_text("dict")["blocks"]:
+        for ln in b.get("lines", []):
+            t = " ".join("".join(sp["text"] for sp in ln["spans"]).split())
+            r = pymupdf.Rect(ln["bbox"]) * m
+            cx, cy = (r.x0 - x0) / MM, ((r.y0 + r.y1) / 2 - y0) / MM
+            if not t or not (-2 <= cy <= 17):
+                continue
+            if 63 <= cx < 172 and CODE_RE.search(t) and not LABEL_WORDS.match(t):
+                st["code"] = st["code"] or t
+            elif 172 <= cx <= 188 and cy > 6 and re.fullmatch(r"\d+(?:\.\d+)?", t):
+                st["sheet"] = t
+    st["found"] = bool(st["code"] or st["sheet"])
+    st["form"] = "6"
+    return st
+
+
 def parse_stamp(page):
     W, H = page.rect.width, page.rect.height
-    corner = frame_corner(page) or (W - 5 * MM, H - 5 * MM)
+    corner = frame_corner(page)
+    st = {"found": False, "code": "", "project": "", "building": "", "title": "", "stage": "",
+          "sheet": "", "sheets": "", "org": "", "roles": {}, "format": "", "form": "3" if corner else ""}
+    if not corner:
+        c6 = form6_corner(page)
+        if c6:
+            p = pymupdf.Point(c6[0] - 60 * MM, c6[1] - 10 * MM) * page.derotation_matrix
+            st["xy"] = (p.x, p.y)
+            return parse_form6(page, c6, st)
+    corner = corner or (W - 5 * MM, H - 5 * MM)
     lines = stamp_lines(page, corner)
-    st = {"found": bool(lines), "code": "", "project": "", "building": "", "title": "", "stage": "",
-          "sheet": "", "sheets": "", "org": "", "roles": {}, "format": ""}
+    st["found"] = bool(lines)
     # точка внутри штампа (над графой шифра) — в системе неповёрнутой страницы, для отметок в PDF
     cx, cy = corner
     p = pymupdf.Point(cx - 60 * MM, cy - 50 * MM) * page.derotation_matrix
@@ -128,7 +173,12 @@ def parse_stamp(page):
     for row in rows.values():
         row.sort(key=lambda l: l["x"])
         if ROLE_RE.match(row[0]["t"]):
-            st["roles"][row[0]["t"]] = " ".join(l["t"] for l in row[1:] if l["x"] < 45)
+            role, rest = row[0]["t"], ""
+            m = ROLE_SPLIT.match(role)          # «Н.контроль Халитов И.» — должность и фамилия одной строкой
+            if m:
+                role, rest = m.group(1), m.group(2)
+            name = " ".join([rest] + [l["t"] for l in row[1:] if l["x"] < 45]).strip()
+            st["roles"][role] = name
     m = re.search(r"Формат\s*([AА]\d)", page.get_text())
     st["format"] = m.group(1) if m else ""
     return st
@@ -136,6 +186,7 @@ def parse_stamp(page):
 
 def sheet_kind(title, text):
     t = (title or "").lower()
+    text = " ".join(text.split())                  # переносы строк внутри заголовков таблиц
     if "общие данные" in t or ("общие данные" in text.lower()[:3000] and "ведомость" in text.lower()):
         return "general"
     if "спецификац" in t or ("наименование и техническая характеристика" in text.lower()):
@@ -249,18 +300,28 @@ class Album:
             for p in doc:
                 text = p.get_text()
                 st = parse_stamp(p)
+                kind = sheet_kind(st["title"], text)
+                if len(text.strip()) < 30:
+                    kind = "image"              # скан или картинка — текста нет
+                elif not st["form"] and p.number < 3 and re.search(
+                        r"РАБОЧИЙ\s+ПРОЕКТ|РАБОЧАЯ\s+ДОКУМЕНТАЦИЯ|ПРОЕКТНАЯ\s+ДОКУМЕНТАЦИЯ|Альбом|Том\s+\d", text, re.I):
+                    kind = "cover"              # обложка, титульный лист — основной надписи нет по ГОСТ
+                elif st["form"] == "6" and kind != "spec":
+                    kind = "text"               # последующий лист текстового документа
                 self.sheets.append({"file": os.path.basename(path), "path": path, "page": p.number,
                                     "stamp": st, "text": text,
-                                    "kind": sheet_kind(st["title"], text),
+                                    "kind": kind,
                                     "label": st["sheet"] or f"стр. {p.number + 1}"})
 
     def project_guess(self):
         """Шифр и наименование, которые встречаются чаще всего."""
-        codes = [s["stamp"]["code"] for s in self.sheets if s["stamp"]["code"]]
-        names = [s["stamp"]["project"] for s in self.sheets if s["stamp"]["project"]]
+        main = [s for s in self.sheets if s["kind"] not in ("spec", "text", "cover", "image")
+                and s["stamp"].get("form") != "6"]           # шифр комплекта — по чертежам, не по спецификации
+        codes = [s["stamp"]["code"] for s in main if s["stamp"]["code"]]
+        names = [s["stamp"]["project"] for s in main if s["stamp"]["project"]]
         most = lambda xs: max(set(xs), key=xs.count) if xs else ""
         return {"code": most(codes), "name": most(names),
-                "building": most([s["stamp"]["building"] for s in self.sheets if s["stamp"]["building"]])}
+                "building": most([s["stamp"]["building"] for s in main if s["stamp"]["building"]])}
 
 
 def check_album(album, expected_code="", expected_name="", sheet_info=None, callouts=None, labels=None):
@@ -279,9 +340,21 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
                           "x": None if needle else xy[0], "y": None if needle else xy[1], "needle": needle}]}
 
     # --- основная надпись
+    images = [s for s in S if s["kind"] == "image"]
+    if images:
+        F.append(finding("Основная надпись", GOST101, "", "info",
+                         "Листы без текста (скан или картинка): основная надпись и содержание не проверялись.",
+                         "Если это чертежи комплекта, выведите их в PDF из CAD-программы с текстом.",
+                         **where(images[0]) | {"sheet": ", ".join(s["label"] for s in images)}))
     for s in S:
         st = s["stamp"]
-        if s["kind"] == "spec":          # у спецификации своя форма — проверяется отдельно ниже
+        if s["kind"] in ("spec", "cover", "image"):  # у спецификации своя форма — проверяется отдельно ниже
+            continue
+        if st.get("form") == "6":        # короткая надпись последующих листов: только шифр
+            if st["code"] and code_ref and not st["code"].replace(" ", "").startswith(code_ref.replace(" ", "")):
+                F.append(finding("Шифр", GOST101, "", "error",
+                                 f"Шифр «{st['code']}» не совпадает с шифром комплекта «{code_ref}».",
+                                 f"Исправьте шифр на «{code_ref}».", **where(s)))
             continue
         if not st["found"]:
             F.append(finding("Основная надпись", GOST101, "", "warn",
@@ -343,11 +416,14 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
                              f"В наименовании схем «{st['title']}» не указаны обозначения систем.",
                              "Пример: «Схемы систем П5, В8, К3».", **where(s)))
         info = (sheet_info or {}).get((s["file"], s["page"]))
-        if info and s["kind"] == "plan" and info.get("scale_how") == "не определён":
-            F.append(finding("Наименования листов", GOST, "6.1.12, 6.2.9", "warn",
-                             f"Лист назван «{st['title']}», но воздуховоды на нём показаны одной линией — "
-                             "похоже на схему, а не на план.",
-                             "Проверьте наименование листа в основной надписи.", **where(s)))
+        if (info and s["kind"] == "plan" and info.get("scale_how") == "не определён"
+                and re.search(r"вент|воздух", st["title"], re.I)):
+            # двухлинейные воздуховоды не найдены: это может быть и схема, и непривычные слои/линии в PDF
+            F.append(finding("Сечения: подпись и чертёж", GOST, "6.1.12, 6.2.9", "info",
+                             f"На листе «{st['title']}» не найдены двухлинейные воздуховоды — масштаб не определён, "
+                             "сечения на этом листе не сверялись.",
+                             "Если воздуховоды показаны двумя линиями, проверьте справочник «Слои» "
+                             "(имена слоёв воздуховодов в этом PDF).", **where(s)))
         if info and info.get("scale") and s["kind"] in ("plan", "section") and info["scale"] not in (50, 100, 200):
             F.append(finding("Масштабы", GOST, "4.13, табл. 3", "warn",
                              f"Масштаб листа 1:{info['scale']} не входит в рекомендуемые для планов "
@@ -358,7 +434,7 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
     prev = None
     for s in S:
         n = s["stamp"]["sheet"]
-        if not s["stamp"]["found"] or s["kind"] == "spec":
+        if not s["stamp"]["found"] or s["kind"] in ("spec", "cover", "image", "text"):
             continue
         if not n:
             F.append(finding("Номера листов", GOST101, "", "warn", "Не указан номер листа.", "", **where(s)))
@@ -388,16 +464,18 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
                          "Добавьте PDF с листами общих данных, чтобы проверить их состав.",
                          **(where(first) if first else {})))
     else:
-        gtext = " ".join(s["text"] for s in general).lower()
-        req = [("ведомость рабочих чертежей", GOST101, "", "Ведомость рабочих чертежей основного комплекта"),
-               ("ведомость ссылочных", GOST101, "", "Ведомость ссылочных и прилагаемых документов"),
-               ("характеристика систем", GOST, "5.1, 5.4", "Характеристика систем (форма 1)"),
-               ("основные показатели", GOST, "5.1, 5.5", "Основные показатели систем ОВ (форма 2)"),
-               ("расчетные параметры наружного", GOST, "5.6", "Расчётные параметры наружного и внутреннего воздуха в общих указаниях"),
-               ("сп рк 4.02-101", GOST, "5.6", "Ссылка на СП РК 4.02-101-2012 в общих указаниях")]
+        # пробелы и переносы схлопываются, ё → е, латинские буквы-двойники → русские («CП РК» с латинской C)
+        gtext = " ".join(" ".join(s["text"] for s in general).split()).lower().replace("ё", "е")
+        gtext = gtext.translate(str.maketrans("aceopxyk", "асеорхук"))
+        req = [(r"ведомость рабочих чертежей", GOST101, "", "Ведомость рабочих чертежей основного комплекта"),
+               (r"ведомость ссылочных", GOST101, "", "Ведомость ссылочных и прилагаемых документов"),
+               (r"характеристик\w* систем", GOST, "5.1, 5.4", "Характеристика систем (форма 1)"),
+               (r"основные показатели", GOST, "5.1, 5.5", "Основные показатели систем ОВ (форма 2)"),
+               (r"расчетн\w* (?:параметр\w* |температур\w* )?наружн", GOST, "5.6",
+                "Расчётные параметры наружного и внутреннего воздуха в общих указаниях"),
+               (r"сп\s*рк\s*4\.02-101", GOST, "5.6", "Ссылка на СП РК 4.02-101-2012 в общих указаниях")]
         for key, norm, cl, what in req:
-            alt = key.replace("расчетные", "расчётные")
-            if key not in gtext and alt not in gtext:
+            if not re.search(key, gtext):
                 F.append(finding("Состав комплекта", norm, cl, "warn",
                                  f"В общих данных не найдено: {what}.", "", **where(general[0])))
         if "ведомость спецификаций" in gtext:
@@ -489,9 +567,11 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
                              f"Обозначение спецификации: «{code_ref}.СО».", **where(spec_sheets[0])))
         for c in codes:
             if not c.startswith(code_ref):
+                bad = [s for s in spec_sheets if c in s["text"]] or spec_sheets[:1]
                 F.append(finding("Шифр", "ГОСТ 21.110", "", "error",
                                  f"Обозначение спецификации «{c}» не соответствует шифру комплекта «{code_ref}».",
-                                 f"Должно быть «{code_ref}.СО».", **where(spec_sheets[0])))
+                                 f"Должно быть «{code_ref}.СО».", **where(bad[0], needle=c)
+                                 | {"sheet": ", ".join(s["label"] for s in bad)}))
     if spec_text.strip() and callouts:
         groups = {}
         for file, page, sheet, typ, size, text, x, y, path in callouts:
