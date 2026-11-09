@@ -27,8 +27,12 @@
 Нужен Python 3.10+ и библиотека PyMuPDF:
 
 ```
-python -m pip install pymupdf pymorphy3
+python -m pip install pymupdf pymorphy3 ezdxf
 ```
+
+`ezdxf` — чтение DXF и DWG (ставится сам при первой проверке DXF/DWG). Для DWG нужна ещё
+бесплатная программа **ODA File Converter** (opendesign.com → Guest Files → ODA File Converter):
+она переводит DWG в DXF. DXF читается без неё.
 
 `pymorphy3` — словарь русского языка для проверки орфографии; если его нет, программа
 попробует поставить его сама при первой проверке.
@@ -48,6 +52,7 @@ python -m pip install pymupdf pymorphy3
 | `ov_tech.py` | технические проверки по СП РК 4.02-101 |
 | `ov_norms.py` | база нормативов: разбор PDF, Word и TXT по пунктам и поиск |
 | `ov_word.py` | чтение документов Word (.docx, .doc, .rtf) |
+| `ov_cad.py` | чтение DWG и DXF: перевод листов чертежа в PDF со слоями и текстом |
 | `ov_spell.py` | проверка орфографии (словарь pymorphy3 + слова из нормативов + `Справочники\Словарь.txt`) |
 | `ov_marks.py` | PDF с комментариями |
 | `ov_report.py` | сводный отчёт |

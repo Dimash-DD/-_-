@@ -150,7 +150,7 @@ padding:12px 18px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);tran
 
   <div class="gh">Файлы</div>
   <div class="group" id="files"></div>
-  <div class="drop" id="drop">Перетащите PDF сюда — альбом, спецификацию, общие данные</div>
+  <div class="drop" id="drop">Перетащите сюда PDF, DWG или DXF — альбом, спецификацию, общие данные</div>
 
   <div class="gh">Что проверять</div>
   <div class="group">
@@ -344,7 +344,7 @@ $("#detect").onclick=async()=>{try{const g=await api("/api/detect",{});await sav
 const drop=$("#drop");
 ["dragenter","dragover"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot")}));
 ["dragleave","drop"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();if(ev==="drop"||e.target===document.documentElement)drop.classList.remove("hot")}));
-document.addEventListener("drop",async e=>{drop.classList.remove("hot");const fs=[...e.dataTransfer.files].filter(f=>/\.pdf$/i.test(f.name));
+document.addEventListener("drop",async e=>{drop.classList.remove("hot");const fs=[...e.dataTransfer.files].filter(f=>/\.(pdf|dwg|dxf)$/i.test(f.name));
  if(!fs.length)return toast("Нужны файлы PDF");toast("Загружаю "+fs.length+" файл(ов)…");
  for(const f of fs){const r=await fetch("/api/upload",{method:"POST",headers:{"X-Token":TOKEN,"X-Name":encodeURIComponent(f.name),"X-Mtime":String(f.lastModified||"")},body:f});
   const j=await r.json();if(j.settings)S=j.settings}render();show("s-check")});

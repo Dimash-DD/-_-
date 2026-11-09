@@ -19,6 +19,7 @@ import os
 import re
 
 import ov_album
+import ov_cad
 import ov_check
 import ov_config
 import ov_marks
@@ -102,8 +103,23 @@ def run(files, opts=None, log=print, norms=None):
     o = dict(DEFAULT_OPTS, **(opts or {}))
     started = datetime.datetime.now()
     if not files:
-        raise ValueError("Не выбраны PDF для проверки.")
+        raise ValueError("Не выбраны чертежи для проверки.")
     files = [os.path.abspath(f) for f in files]
+    first = files[0]                                    # папка отчёта — по первому чертежу, как он назван
+
+    # 0. DWG и DXF → PDF (в папку отчёта), дальше проверка как у PDF
+    if any(f.lower().endswith(ov_cad.CAD_EXT) for f in files):
+        conv = []
+        for f in files:
+            if f.lower().endswith(ov_cad.CAD_EXT):
+                d = report_dir(f, o["outdir"])
+                os.makedirs(d, exist_ok=True)
+                pdf = os.path.join(d, os.path.splitext(os.path.basename(f))[0] + ".pdf")
+                log(f"Перевожу {os.path.basename(f)} в PDF…")
+                conv.append(ov_cad.to_pdf(f, pdf, log))
+            else:
+                conv.append(f)
+        files = conv
 
     # 1. нормативы
     if norms is None:
@@ -204,7 +220,7 @@ def run(files, opts=None, log=print, norms=None):
         f["n"] = k
 
     # 8. выходные файлы
-    outdir = report_dir(files[0], o["outdir"])
+    outdir = report_dir(first, o["outdir"])
     os.makedirs(outdir, exist_ok=True)
     base = base_name(project, files)
     log("Ставлю комментарии в PDF…")

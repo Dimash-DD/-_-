@@ -99,7 +99,8 @@ def pick_files(kind="files", initial=None):
         if kind == "dir":
             r = filedialog.askdirectory(title="Выберите папку", initialdir=initial or None, parent=root)
             return [r] if r else []
-        r = filedialog.askopenfilenames(title="Выберите PDF", filetypes=[("PDF", "*.pdf")],
+        r = filedialog.askopenfilenames(title="Выберите чертежи", filetypes=[
+            ("Чертежи PDF, DWG, DXF", "*.pdf *.dwg *.dxf"), ("PDF", "*.pdf"), ("DWG, DXF", "*.dwg *.dxf")],
                                         initialdir=initial or None, parent=root)
         return list(r)
     finally:
@@ -159,7 +160,8 @@ def pick_original(name, initial=None):
     try:
         return filedialog.askopenfilename(
             title=f"Где лежит «{name}»? Укажите этот файл — отчёты сохранятся рядом с ним",
-            initialfile=name, initialdir=initial or None, filetypes=[("PDF", "*.pdf")], parent=root) or ""
+            initialfile=name, initialdir=initial or None,
+            filetypes=[("Чертёж", "*" + os.path.splitext(name)[1])], parent=root) or ""
     finally:
         root.destroy()
 
@@ -303,8 +305,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if u.path == "/api/upload":
             name = os.path.basename(urllib.parse.unquote(self.headers.get("X-Name", "file.pdf")))
-            if not name.lower().endswith(".pdf"):
-                return self._send(400, {"error": "только PDF"})
+            if not name.lower().endswith((".pdf", ".dwg", ".dxf")):
+                return self._send(400, {"error": "только PDF, DWG и DXF"})
             try:
                 mtime = float(self.headers.get("X-Mtime") or 0) or None
             except ValueError:
