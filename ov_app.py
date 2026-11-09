@@ -371,6 +371,13 @@ class Handler(BaseHTTPRequestHandler):
             import ov_audit as A
             return self._send(200, A.reload_claude(res))
 
+        if u.path == "/api/shortcut":
+            try:
+                import ov_shortcut
+                return self._send(200, {"made": ov_shortcut.create()})
+            except Exception as e:
+                return self._send(500, {"error": f"Не удалось создать ярлык: {e}"})
+
         if u.path == "/api/open":
             res = st.job.get("result")
             what = data.get("what")

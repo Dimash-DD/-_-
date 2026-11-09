@@ -177,6 +177,7 @@ padding:12px 18px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);tran
      <div class="step"><button id="tolm">−</button><b id="tolv">5</b><button id="tolp">+</button></div></div>
    <div class="row"><span class="lbl">Листы</span><input type="text" id="pages" placeholder="все"></div>
    <div class="row tap" id="outdir-row"><span class="lbl">Результаты</span><span class="val" id="outdir-v">рядом с чертежом, папка «…_отчет»</span><span class="chev">›</span></div>
+   <div class="row tap" id="shortcut-row"><span class="lbl">Ярлык программы</span><span class="val">на рабочий стол и в «Пуск»</span><span class="chev">›</span></div>
   </div>
 
   <button class="btn" id="run">Проверить</button>
@@ -432,6 +433,7 @@ $("#pv-prev").onclick=()=>openPreview(PV.f,PV.k-1,PV.id);$("#pv-next").onclick=(
 $("#pv-close").onclick=()=>$("#pv").classList.remove("on");
 $("#pv").onclick=e=>{if(e.target.id==="pv")$("#pv").classList.remove("on")};
 $("#pv-open").onclick=()=>api("/api/open",{what:"page",id:PV.id,k:PV.k}).catch(e=>toast(e.message));
+$("#shortcut-row").onclick=async()=>{try{const r=await api("/api/shortcut",{});toast("Ярлык создан на рабочем столе и в меню «Пуск»")}catch(e){toast(e.message)}};
 $$("[data-open]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{what:b.dataset.open})}catch(e){toast(e.message)}});
 $$("[data-open2]").forEach(b=>b.onclick=async()=>{try{await api("/api/open",{what:b.dataset.open2})}catch(e){toast(e.message)}});
 
