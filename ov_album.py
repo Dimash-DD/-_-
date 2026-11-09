@@ -39,6 +39,48 @@ LABEL_WORDS = re.compile(r"^(Изм\.?|Кол\.?\s*уч\.?|Лист|№\s*док
 ROLE_RE = re.compile(r"^(Разраб|Разработ|Пров|Провер|Н\.?\s*контр|Нач\.?|ГИП|ГАП|Утв|Рук|Исполн|Т\.?\s*контр)", re.I)
 ROLE_SPLIT = re.compile(r"^((?:Разраб\w*|Пров\w*|Н\.?\s*контр\w*|Нач\.?(?:\s*отд\.?)?|ГИП|ГАП|Утв\w*|Рук\w*|"
                         r"Исполн\w*|Т\.?\s*контр\w*)\.?)\s+(\S.*)$", re.I)
+DATE_RE = re.compile(r"\d{1,2}[.,/]\d{2,4}(?:[.,/]\d{2,4})?")
+ROLE_KEYS = [("Разраб.", r"разраб"), ("Пров.", r"пров"), ("Н. контр.", r"н\.?\s*контр"), ("ГИП", r"гип"),
+             ("ГАП", r"гап"), ("Нач. отд.", r"нач"), ("Утв.", r"утв"), ("Т. контр.", r"т\.?\s*контр"),
+             ("Рук.", r"рук"), ("Исполн.", r"исполн")]
+
+
+def role_key(role):
+    """«Разработал», «Разраб.» → «Разраб.»; «Н.контроль» → «Н. контр.»."""
+    r = role.lower()
+    return next((k for k, rx in ROLE_KEYS if re.match(rx, r)), role)
+
+
+def signature_marks(page, corner):
+    """Высоты (мм от верха штампа) росчерков в графе «Подпись» (40–55 мм от левого края штампа):
+    рукописные кривые и вставленные картинки подписей. Линии таблицы не считаются."""
+    if not corner:
+        return []
+    x0, y0 = corner[0] - 185 * MM, corner[1] - 55 * MM
+    m = page.rotation_matrix
+    zone = pymupdf.Rect(x0 + 39.5 * MM, y0 + 20 * MM, x0 + 55.5 * MM, y0 + 56 * MM)
+    rects = []
+    try:
+        rects = [pymupdf.Rect(d["rect"]) for d in page.get_drawings()]
+    except Exception:
+        pass
+    try:
+        rects += [pymupdf.Rect(i["bbox"]) for i in page.get_image_info()]
+    except Exception:
+        pass
+    out = []
+    for r in rects:
+        r = r * m
+        if not zone.intersects(r) or r.width > 20 * MM or r.height > 15 * MM:
+            continue
+        if r.width < 0.4 * MM or r.height < 0.4 * MM:
+            continue                                  # прямая линия — графа таблицы
+        cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+        if zone.contains(pymupdf.Point(cx, cy)):
+            out.append((cy - y0) / MM)
+    return out
+
+
 CODE_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё.]+(?:[-–][0-9A-Za-zА-Яа-яЁё.]+){1,6}")
 
 
@@ -138,7 +180,7 @@ def parse_stamp(page):
     W, H = page.rect.width, page.rect.height
     corner = frame_corner(page)
     st = {"found": False, "code": "", "project": "", "building": "", "title": "", "stage": "",
-          "sheet": "", "sheets": "", "org": "", "roles": {}, "format": "", "form": "3" if corner else ""}
+          "sheet": "", "sheets": "", "org": "", "roles": {}, "people": {}, "format": "", "form": "3" if corner else ""}
     if not corner:
         c6 = form6_corner(page)
         if c6:
@@ -170,6 +212,7 @@ def parse_stamp(page):
     for l in lines:
         if l["x"] < 62 and l["y"] >= 22:
             rows.setdefault(round(l["y"] / 2.5), []).append(l)
+    sign = signature_marks(page, corner)
     for row in rows.values():
         row.sort(key=lambda l: l["x"])
         if ROLE_RE.match(row[0]["t"]):
@@ -179,6 +222,10 @@ def parse_stamp(page):
                 role, rest = m.group(1), m.group(2)
             name = " ".join([rest] + [l["t"] for l in row[1:] if l["x"] < 45]).strip()
             st["roles"][role] = name
+            y = sum(l["y"] for l in row) / len(row)
+            date = " ".join(l["t"] for l in row[1:] if l["x"] >= 50 and DATE_RE.fullmatch(l["t"]))
+            st["people"][role_key(role)] = {"role": role, "name": name, "date": date, "y": y,
+                                            "signed": any(abs(sy - y) <= 2.6 for sy in sign)}
     m = re.search(r"Формат\s*([AА]\d)", page.get_text())
     st["format"] = m.group(1) if m else ""
     return st
@@ -279,9 +326,108 @@ def norm_size_text(s):
 
 # ---------------------------------------------------------------- проверки
 
+def check_signatures(S, where):
+    """Графы 10–13 основной надписи (должность, фамилия, подпись, дата) — одинаково на всех листах.
+    Строка «ГИП» обязательна только на первом листе общих данных, на остальных — по желанию."""
+    F = []
+    sheets = [s for s in S if s["kind"] not in ("cover", "image") and s["stamp"].get("form") == "3"
+              and s["stamp"].get("people")]
+    if not sheets:
+        return F
+    lab = lambda ss: ", ".join(str(x["label"]) for x in ss[:15]) + ("…" if len(ss) > 15 else "")
+    surname = lambda n: re.sub(r"[^а-яёa-z-]", "", n.split()[0].lower()) if n.split() else ""
+
+    def loc(ss, needle=None):
+        f = where(ss[0], needle)
+        f["sheet"] = lab(ss)
+        for x in ss[1:30]:
+            f["locs"] += where(x, needle)["locs"]
+        return f
+
+    # ГИП на первом листе общих данных
+    general = [s for s in sheets if s["kind"] == "general"]
+    if general and "ГИП" not in general[0]["stamp"]["people"]:
+        F.append(finding("Подписи в основной надписи", GOST101, "", "error",
+                         "На первом листе общих данных нет строки «ГИП» (главный инженер проекта).",
+                         "Добавьте строку «ГИП» с фамилией, подписью и датой.", **where(general[0])))
+    roles = []
+    for s in sheets:
+        for k in s["stamp"]["people"]:
+            if k not in roles:
+                roles.append(k)
+    if "Н. контр." not in roles:
+        F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                         "Ни на одном листе нет строки «Н. контр.» (нормоконтроль).",
+                         "Добавьте фамилию нормоконтролёра, подпись и дату на все листы.", **where(sheets[0])))
+    for k in roles:
+        has = [s for s in sheets if k in s["stamp"]["people"]]
+        rows = [(s, s["stamp"]["people"][k]) for s in has]
+        name0 = has[0]["stamp"]["people"][k]["role"]
+        # строка есть не на всех листах (кроме ГИП)
+        if k != "ГИП" and len(has) < len(sheets):
+            miss = [s for s in sheets if k not in s["stamp"]["people"]]
+            F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                             f"Строка «{name0}» есть не на всех листах: нет на листах {lab(miss)} "
+                             f"(есть на {len(has)} из {len(sheets)}).",
+                             "Состав подписей в основной надписи должен быть одинаковым на всех листах "
+                             "(кроме строки «ГИП»).", **loc(miss)))
+        # фамилия
+        empty = [s for s, p in rows if not p["name"].strip()]
+        if empty:
+            F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                             f"В строке «{name0}» не указана фамилия: листы {lab(empty)}.", "", **loc(empty)))
+        by_sur, by_full = {}, {}
+        for s, p in rows:
+            if p["name"].strip():
+                by_sur.setdefault(surname(p["name"]), []).append(s)
+                by_full.setdefault(" ".join(p["name"].split()), []).append(s)
+        if len(by_sur) > 1:
+            parts = "; ".join(f"«{next(n for n, ss in by_full.items() if surname(n) == sur)}» — листы {lab(ss)}"
+                              for sur, ss in sorted(by_sur.items(), key=lambda kv: -len(kv[1])))
+            minor = [s for sur, ss in sorted(by_sur.items(), key=lambda kv: -len(kv[1]))[1:] for s in ss]
+            F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                             f"В строке «{name0}» на разных листах разные фамилии: {parts}.",
+                             "На всех листах комплекта в этой строке должен стоять один и тот же специалист.",
+                             **loc(minor)))
+        elif len(by_full) > 1:
+            parts = "; ".join(f"«{n}» — листы {lab(ss)}" for n, ss in sorted(by_full.items(), key=lambda kv: -len(kv[1])))
+            minor = [s for n, ss in sorted(by_full.items(), key=lambda kv: -len(kv[1]))[1:] for s in ss]
+            F.append(finding("Подписи в основной надписи", GOST101, "", "info",
+                             f"В строке «{name0}» фамилия записана по-разному: {parts}.",
+                             "Запишите одинаково на всех листах (фамилия и инициалы).", **loc(minor)))
+        # подпись
+        unsigned = [s for s, p in rows if p["name"].strip() and not p["signed"]]
+        if unsigned:
+            F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                             f"В строке «{name0}» нет подписи: листы {lab(unsigned)}.",
+                             "Поставьте подпись в графе «Подпись».", **loc(unsigned)))
+        # дата
+        dated = [(s, p["date"]) for s, p in rows if p["date"]]
+        if dated and len(dated) < len(rows):
+            nodate = [s for s, p in rows if not p["date"]]
+            F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                             f"В строке «{name0}» не проставлена дата: листы {lab(nodate)}.",
+                             "Проставьте дату подписания (месяц и год, например 06.26).", **loc(nodate)))
+        dates = {}
+        for s, d in dated:
+            dates.setdefault(d, []).append(s)
+        if len(dates) > 1:
+            parts = "; ".join(f"{d} — листы {lab(ss)}" for d, ss in sorted(dates.items(), key=lambda kv: -len(kv[1])))
+            minor = [s for d, ss in sorted(dates.items(), key=lambda kv: -len(kv[1]))[1:] for s in ss]
+            F.append(finding("Подписи в основной надписи", GOST101, "", "info",
+                             f"В строке «{name0}» на листах разные даты: {parts}.",
+                             "Обычно дата подписания одна для всего комплекта — проверьте.", **loc(minor)))
+    if not any(p["date"] for s in sheets for p in s["stamp"]["people"].values()):
+        F.append(finding("Подписи в основной надписи", GOST101, "", "warn",
+                         "Даты подписания (графа «Дата») не проставлены ни на одном листе.",
+                         "Проставьте дату подписания — месяц и год, например 06.26.", **loc(sheets)))
+    return F
+
+
 DESIGN_GROUPS = {"Основная надпись", "Шифр", "Наименование", "Номера листов", "Состав комплекта",
                  "Обозначения систем", "Наименования листов", "Масштабы", "Орфография",
-                 "Обозначения трубопроводов", "Обозначения элементов"}
+                 "Обозначения трубопроводов", "Обозначения элементов",
+                 "Подписи в основной надписи"}
 
 
 def finding(group, norm, clause, severity, text, fix="", sheet=None, page=None, file=None, locs=None):
@@ -398,15 +544,6 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
                              "Заполните графу так же, как на остальных листах.", **where(s)))
         if not st["stage"]:
             F.append(finding("Основная надпись", GOST101, "", "warn", "Не указана стадия.", "", **where(s)))
-        roles = " ".join(st["roles"]).lower()
-        if st["roles"] and not re.search(r"н\.?\s*контр", roles):
-            F.append(finding("Основная надпись", GOST101, "", "warn",
-                             "В основной надписи нет строки «Н. контр.» (нормоконтроль).",
-                             "Добавьте фамилию нормоконтролёра и подпись.", **where(s)))
-        for role, name in st["roles"].items():
-            if not name.strip():
-                F.append(finding("Основная надпись", GOST101, "", "warn",
-                                 f"В строке «{role}» не указана фамилия.", "", **where(s)))
         t = st["title"].lower()
         if s["kind"] == "plan" and "план-схем" not in t and not re.search(r"отм|этаж|кровл|подвал|разрез|\d+\s*-\s*\d+", t):
             F.append(finding("Наименования листов", GOST, "6.1.12", "warn",
@@ -494,6 +631,8 @@ def check_album(album, expected_code="", expected_name="", sheet_info=None, call
                          "Спецификация оборудования в проверку не добавлена — выноски оборудования "
                          "со спецификацией не сверялись.",
                          "Добавьте PDF спецификации в список файлов.", **(where(first) if first else {})))
+
+    F += check_signatures(S, where)
 
     # --- обозначения систем
     by_sys = {}
