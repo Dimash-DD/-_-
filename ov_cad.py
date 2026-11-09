@@ -92,9 +92,63 @@ def _font_file():
     return None
 
 
+# форматы ГОСТ 2.301 (мм), включая дополнительные
+FORMATS = [(1189, 841), (841, 594), (594, 420), (420, 297), (297, 210), (420, 891), (420, 1189),
+           (297, 630), (297, 841), (297, 1051), (594, 1261), (594, 841), (841, 1783), (841, 1189)]
+
+
+def _match_format(w, h):
+    """Размер рамки → (формат w, h, смещение рамки внутри формата слева, снизу) или None.
+    Узнаёт и внешнюю рамку (обрез/граница формата), и внутреннюю (поля 20/5/5/5 мм)."""
+    for fw, fh in FORMATS:
+        for W, H in ((fw, fh), (fh, fw)):
+            if 0.97 * W <= w <= W * 1.005 and 0.97 * H <= h <= H * 1.005:
+                return W, H, (W - w) / 2, (H - h) / 2              # внешняя: по центру формата
+            if abs(w - (W - 25)) < 3 and abs(h - (H - 10)) < 3:
+                return W, H, 20, 5                                # внутренняя рамка
+    return None
+
+
+def find_frames(layout):
+    """Рамки листов, начерченные в пространстве модели (несколько листов рядом в масштабе 1:1).
+    Возвращает [(xmin, ymin, W, H)] — левый нижний угол формата и его размер, в единицах чертежа."""
+    from ezdxf import bbox as ebbox
+    import re
+    cand = []
+    for e in layout.query("LWPOLYLINE POLYLINE INSERT"):
+        t = e.dxftype()
+        if t == "INSERT" and not re.search(r"рамк|формат|format|frame|штамп|sheet|лист|[АA][0-4]", e.dxf.name, re.I):
+            continue
+        if t != "INSERT" and not getattr(e, "is_closed", False):
+            continue
+        try:
+            ext = ebbox.extents([e], fast=True)
+        except Exception:
+            continue
+        if not ext.has_data:
+            continue
+        w, h = ext.size.x, ext.size.y
+        f = _match_format(w, h)
+        if f:
+            W, H, dx, dy = f
+            cand.append((ext.extmin.x - dx, ext.extmin.y - dy, W, H))
+    # убираем повторы и рамки внутри других (внешняя и внутренняя рамка одного листа)
+    cand.sort(key=lambda c: -c[2] * c[3])
+    out = []
+    for c in cand:
+        if any(c[0] >= o[0] - 1 and c[1] >= o[1] - 1 and c[0] + c[2] <= o[0] + o[2] + 1
+               and c[1] + c[3] <= o[1] + o[3] + 1 for o in out):
+            continue
+        out.append(c)
+    # порядок листов: по рядам сверху вниз, в ряду слева направо
+    out.sort(key=lambda c: (-round((c[1] + c[3] / 2) / 50), c[0]))
+    return out
+
+
 def _render_layout(doc, layout, is_model, log):
-    """Один лист → (байты PDF одной страницы, список надписей в координатах страницы)."""
-    import pymupdf
+    """Вкладка чертежа → список страниц [(байты PDF, надписи в координатах страницы)].
+    Пространство модели с несколькими рамками — по странице на рамку."""
+    import copy
     from ezdxf.addons.drawing import Frontend, RenderContext, pymupdf as dpdf, layout as dlayout, pipeline, config
     from ezdxf.math import Vec2, Vec3, BoundingBox2d
 
@@ -119,18 +173,19 @@ def _render_layout(doc, layout, is_model, log):
                 pipeline, "prepare_string_for_rendering") else text, p0, px, py, properties.layer))
 
     class Backend(dpdf.PyMuPdfBackend):
-        matrix = None
-
-        def get_replay(self, page, *, settings=dlayout.Settings(), render_box=None):
-            player = self.player()
+        def replay(self, page, settings, render_box=None):
+            """Как get_replay, но на копии записи — чтобы из одной отрисовки сделать несколько страниц."""
+            player = self.player().copy()
             box = render_box or player.bbox()
-            out = dlayout.Layout(box, flip_y=self._init_flip_y)
+            out = dlayout.Layout(box, flip_y=True)
             final = out.get_final_page(page, settings)
-            import copy
             s2 = copy.copy(settings)
             s2.output_coordinate_space = dpdf.get_coordinate_output_space(final)
-            Backend.matrix = out.get_placement_matrix(final, settings=s2, top_origin=True)
-            return super().get_replay(page, settings=settings, render_box=render_box)
+            m = out.get_placement_matrix(final, settings=s2, top_origin=True)
+            player.transform(m)
+            be = self.make_backend(final, s2)
+            player.replay(be)
+            return be.get_pdf_bytes(), m
 
     backend = Backend()
     # белый фон; цвет 7 (белый/чёрный) выводится чёрным, остальные цвета — как в чертеже
@@ -141,37 +196,47 @@ def _render_layout(doc, layout, is_model, log):
     finally:
         pipeline.RenderPipeline2d.draw_text = orig
 
+    jobs = []                                                     # (страница, параметры, область)
     if is_model:
-        # пространство модели: размер страницы по содержимому, не больше 5 м (предел формата PDF)
-        bbox = backend.player().bbox()
-        if not bbox.has_data:
-            return None, []
-        w, h = bbox.size.x, bbox.size.y
-        k = min(1.0, 5000 / max(w, h, 1e-9))
-        page = dlayout.Page(0, 0, dlayout.Units.mm, margins=dlayout.Margins.all(0))
-        settings = dlayout.Settings(scale=k, fit_page=False)
-        box = None
+        frames = find_frames(layout)
+        if frames:
+            log(f"  в пространстве модели рамок листов: {len(frames)}")
+            for x, y, W, H in frames:
+                jobs.append((dlayout.Page(W, H, dlayout.Units.mm, margins=dlayout.Margins.all(0)),
+                             dlayout.Settings(fit_page=False, scale=1),
+                             BoundingBox2d([(x, y), (x + W, y + H)])))
+        else:
+            # рамок нет: всё содержимое одной страницей, не больше 5 м (предел формата PDF)
+            bbox = backend.player().bbox()
+            if not bbox.has_data:
+                return []
+            k = min(1.0, 5000 / max(bbox.size.x, bbox.size.y, 1e-9))
+            jobs.append((dlayout.Page(0, 0, dlayout.Units.mm, margins=dlayout.Margins.all(0)),
+                         dlayout.Settings(scale=k, fit_page=False), None))
     else:
         # лист бумаги целиком: формат из параметров листа, область — границы бумаги
-        page = dlayout.Page.from_dxf_layout(layout)
-        settings = dlayout.Settings(fit_page=False, scale=1)
         lo, hi = layout.get_paper_limits()
         box = BoundingBox2d([lo, hi]) if (hi - lo).x > 10 and (hi - lo).y > 10 else None
-    try:
-        pdf = backend.get_pdf_bytes(page, settings=settings, render_box=box)
-    except Exception:
-        settings = dlayout.Settings(fit_page=True)        # нестандартные параметры листа — вписываем
-        pdf = backend.get_pdf_bytes(page, settings=settings)
-    m = Backend.matrix
-    out = []
-    if m is not None:
+        jobs.append((dlayout.Page.from_dxf_layout(layout), dlayout.Settings(fit_page=False, scale=1), box))
+
+    pages = []
+    for page, settings, box in jobs:
+        try:
+            pdf, m = backend.replay(page, settings, box)
+        except Exception:
+            pdf, m = backend.replay(page, dlayout.Settings(fit_page=True))   # нестандартный лист — вписываем
+        W, H = page.width_in_mm * MM if page.width else None, page.height_in_mm * MM if page.height else None
+        out = []
         for text, p0, px, py, lay in texts:
             a, b, c = m.transform(p0), m.transform(px), m.transform(py)
+            if W and H and not (-1 <= a.x <= W + 1 and -1 <= a.y <= H + 1):
+                continue                                          # надпись с другого листа
             ang = math.degrees(math.atan2(b.y - a.y, b.x - a.x))
             cap = math.hypot(c.x - a.x, c.y - a.y)
             if cap > 0.2:
                 out.append((text, (a.x, a.y), ang, cap, lay))
-    return pdf, out
+        pages.append((pdf, out))
+    return pages
 
 
 def _register_layers(doc):
@@ -208,32 +273,32 @@ def to_pdf(src, dst, log=print):
     model_only = not layouts
     if model_only:
         layouts = [doc.modelspace()]
-        log("  листов (Layout) нет — беру пространство модели одной страницей")
+        log("  листов (Layout) нет — беру пространство модели")
     else:
         log(f"  листов в чертеже: {len(layouts)}")
     font = _font_file()
     result = pymupdf.open()
     for lay in layouts:
         try:
-            pdf, texts = _render_layout(doc, lay, model_only, log)
+            pages = _render_layout(doc, lay, model_only, log)
         except Exception as e:
             log(f"  лист «{lay.name}» не удалось построить: {type(e).__name__}: {e}")
             continue
-        if not pdf:
-            continue
-        one = pymupdf.open("pdf", pdf)
-        page = one[0]
-        if font:
-            page.insert_font(fontname="ovtxt", fontfile=font)
-        for text, (x, y), ang, cap, lay_name in texts:
-            fs = cap / 0.72                                   # высота прописных ≈ 0,72 кегля
-            try:
-                page.insert_text((x, y), text, fontsize=fs, fontname="ovtxt" if font else "helv",
-                                 render_mode=3,                # невидимый текстовый слой
-                                 morph=((pymupdf.Point(x, y), pymupdf.Matrix(-ang))) if abs(ang) > 0.5 else None)
-            except Exception:
-                continue
-        result.insert_pdf(one)
+        for pdf, texts in pages:
+            one = pymupdf.open("pdf", pdf)
+            page = one[0]
+            if font:
+                page.insert_font(fontname="ovtxt", fontfile=font)
+            for text, (x, y), ang, cap, lay_name in texts:
+                fs = cap / 0.72                                   # высота прописных ≈ 0,72 кегля
+                try:
+                    # пробел в конце: MTEXT выводится по словам, без него слова слипаются при чтении
+                    page.insert_text((x, y), text.rstrip() + " ", fontsize=fs, fontname="ovtxt" if font else "helv",
+                                     render_mode=3,               # невидимый текстовый слой
+                                     morph=((pymupdf.Point(x, y), pymupdf.Matrix(-ang))) if abs(ang) > 0.5 else None)
+                except Exception:
+                    continue
+            result.insert_pdf(one)
     if not result.page_count:
         raise CadError("В чертеже нет листов с изображением.")
     _register_layers(result)
