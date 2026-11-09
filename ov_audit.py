@@ -184,6 +184,9 @@ def run(files, opts=None, log=print, norms=None):
             findings = [f for f in findings if f["kind"] == "tech"]
         if not o["callouts"]:
             findings = [f for f in findings if f["group"] != "Выноски и спецификация"]
+        if o["stamp"]:
+            import ov_symbols                       # обозначения трубопроводов и элементов (ГОСТ 21.205, 21.602)
+            findings += ov_symbols.check(album, log)
 
     # 5. технические проверки по СП РК
     spec_text = " ".join(s["text"] for s in album.sheets if s["kind"] == "spec")
